@@ -1,0 +1,29 @@
+{
+  "_comment": "论文索引文件 - 由build_index.py自动生成，可手动补充完善",
+  "papers": [
+    {
+      "id": 1,
+      "filename": "示例论文.pdf",
+      "title": "论文完整标题",
+      "authors": ["作者1", "作者2"],
+      "year": 2024,
+      "source": "期刊名或会议名",
+      "language": "zh/en",
+      "page_count": 10,
+      "keywords": ["关键词1", "关键词2", "关键词3"],
+      "abstract_summary": "论文摘要的核心内容概要，100-200字",
+      "key_findings": [
+        "核心发现/观点1",
+        "核心发现/观点2",
+        "核心发现/观点3"
+      ],
+      "citation_count": 0,
+      "file_size": 1024000,
+      "added_date": "2025-03-12T10:00:00",
+      "notes": "个人阅读笔记，记录重要内容位置"
+    }
+  ],
+  "total_count": 0,
+  "last_updated": "2025-03-12T10:00:00",
+  "index_version": "1.0"
+}

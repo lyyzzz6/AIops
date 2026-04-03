@@ -1,0 +1,354 @@
+# ============================================================
+# 智能运维问答与执行系统 - Docker Compose 配置
+# ============================================================
+#
+# 作者：刘一舟
+# 项目：面向 NetData 监控数据的智能运维问答与执行系统
+# 版本：1.0.0
+#
+# 使用说明：
+#   启动所有服务：docker-compose up -d
+#   查看服务状态：docker-compose ps
+#   停止所有服务：docker-compose down
+#   清理数据重建：docker-compose down -v
+#
+# 注意事项：
+#   1. 首次启动前请复制 .env.example 为 .env 并修改密码
+#   2. Windows 环境下路径使用 / 分隔符或使用 ${PWD}
+#   3. Milvus 需要至少 4GB 内存，请确保 Docker 分配足够资源
+# ============================================================
+
+services:
+  # ============================================================
+  # Milvus 向量数据库 - Standalone 模式
+  # ============================================================
+  # 为什么选 Standalone 模式？
+  # - 开发阶段单机部署足够，无需分布式复杂性
+  # - 生产环境可无缝迁移到 Cluster 模式
+  # - 资源占用更少，启动更快
+  # ============================================================
+  milvus-etcd:
+    image: quay.io/coreos/etcd:v3.5.16
+    container_name: netdata-ops-etcd
+    environment:
+      # etcd 配置说明：
+      # - ETCD_AUTO_COMPACTION_MODE: 自动压缩模式，revision 保留1000个版本
+      # - ETCD_AUTO_COMPACTION_RETENTION: 压缩保留时间
+      # - ETCD_QUOTA_BACKEND_BYTES: 后端配额，默认2GB，增加到8GB支持更多向量
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=8589934592
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - ${MILVUS_DATA_PATH:-./data/milvus/etcd}:/etcd:rw
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      # 健康检查：etcdctl 检查集群状态
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 10s
+    networks:
+      - netdata-ops-network
+    # 资源限制：开发环境适度限制，避免占用过多内存
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+
+  milvus-minio:
+    # MinIO 是 Milvus 的对象存储后端
+    # 用于存储向量数据和索引文件
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    container_name: netdata-ops-minio
+    environment:
+      # MinIO 凭证配置
+      # 生产环境务必修改默认密码！
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      # 9000: S3 API 端口（Milvus 内部使用）
+      # 9001: Console 管理界面（可选，用于调试）
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - ${MILVUS_DATA_PATH:-./data/milvus/minio}:/minio_data:rw
+    # MinIO 启动命令：server 模式，指定数据目录和控制台端口
+    command: minio server /minio_data --console-address ":9001"
+    healthcheck:
+      # 健康检查：curl 检查 MinIO 服务状态
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 10s
+    networks:
+      - netdata-ops-network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+
+  milvus-standalone:
+    # Milvus 主服务
+    # 版本锁定 2.4.x，避免版本不兼容问题
+    image: milvusdb/milvus:v2.4.15
+    container_name: netdata-ops-milvus
+    # Milvus 启动命令：standalone 模式
+    command: ["milvus", "run", "standalone"]
+    # 安全配置：禁用不安全的安全扫描（开发环境）
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      # Milvus 内部配置
+      # ETCD_ENDPOINTS: 连接上面定义的 etcd
+      # MINIO_ADDRESS: 连接上面定义的 MinIO
+      # COMMON_GRACEFULTIME: 优雅关闭等待时间
+      - ETCD_ENDPOINTS=milvus-etcd:2379
+      - MINIO_ADDRESS=milvus-minio:9000
+      - MINIO_ACCESS_KEY_ID=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_ACCESS_KEY=${MINIO_SECRET_KEY:-minioadmin}
+      # 向量索引配置
+      # - DATA_COORD_ENABLECOMPACTION: 启用数据压缩
+      # - DATA_COORD_COMPACTION_DROPRATIO: 压缩丢弃比例
+      - DATA_COORD_ENABLECOMPACTION=true
+      # 日志级别：info（生产用 warn）
+      - COMMON_LOG_LEVEL=info
+    ports:
+      # 19530: gRPC 端口（SDK 连接）
+      # 9091: Metrics 端口（Prometheus 监控）
+      - "${MILVUS_GRPC_PORT:-19530}:19530"
+      - "${MILVUS_METRICS_PORT:-9091}:9091"
+    volumes:
+      # 挂载配置文件（可选，用于高级配置）
+      - ./config/milvus:/milvus/configs:ro
+    healthcheck:
+      # 健康检查：使用 Milvus 自带的健康检查脚本
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+      start_period: 90s  # Milvus 启动较慢，给予足够时间
+    depends_on:
+      # 依赖关系：等待 etcd 和 minio 健康后再启动
+      milvus-etcd:
+        condition: service_healthy
+      milvus-minio:
+        condition: service_healthy
+    networks:
+      - netdata-ops-network
+    # Milvus 是内存密集型服务，分配更多资源
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
+  # ============================================================
+  # MySQL 关系数据库
+  # ============================================================
+  # 用途：
+  # - 用户配置、权限管理
+  # - 命令执行审计日志
+  # - 知识库元数据
+  # ============================================================
+  mysql:
+    image: mysql:8.0
+    container_name: netdata-ops-mysql
+    environment:
+      # MySQL 配置说明：
+      # - MYSQL_ROOT_PASSWORD: root 密码（必须修改！）
+      # - MYSQL_DATABASE: 自动创建的数据库
+      # - MYSQL_USER: 业务用户（推荐使用非 root 用户）
+      # - MYSQL_PASSWORD: 业务用户密码
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-root123456}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-netdata_ops}
+      - MYSQL_USER=${MYSQL_USER:-ops_user}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-ops123456}
+      # 时区设置：中国时区
+      - TZ=Asia/Shanghai
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      # 数据持久化：Windows 路径需要注意权限问题
+      - ${MYSQL_DATA_PATH:-./data/mysql}:/var/lib/mysql:rw
+      # 配置文件挂载
+      - ./config/mysql/my.cnf:/etc/mysql/conf.d/my.cnf:ro
+      # 初始化脚本（首次启动执行）
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    command:
+      # MySQL 8.0 默认认证插件是 caching_sha2_password
+      # 为兼容旧客户端，改用 mysql_native_password
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      # 健康检查：mysqladmin ping 检查服务状态
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root123456}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - netdata-ops-network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+
+  # ============================================================
+  # Redis 缓存
+  # ============================================================
+  # 用途：
+  # - 会话缓存
+  # - RAG 检索结果缓存
+  # - 分布式锁（防止重复执行）
+  # - 实时告警去重
+  # ============================================================
+  redis:
+    image: redis:7.2-alpine
+    container_name: netdata-ops-redis
+    # 使用 alpine 镜像，体积更小，启动更快
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      # 数据持久化目录
+      - ${REDIS_DATA_PATH:-./data/redis}:/data:rw
+      # 配置文件挂载
+      - ./config/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    # 启动命令：使用配置文件，开启 AOF 持久化
+    command: redis-server /usr/local/etc/redis/redis.conf
+    healthcheck:
+      # 健康检查：redis-cli ping
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis123456}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - netdata-ops-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+  # ============================================================
+  # Ollama 本地 LLM 推理
+  # ============================================================
+  # 用途：
+  # - 开发调试：无需消耗 API 费用
+  # - 离线场景：无网络时仍可测试
+  # - 隐私敏感：敏感数据不出本地
+  #
+  # 生产环境主要使用 DeepSeek-V3 API
+  # Ollama 作为备用方案
+  # ============================================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: netdata-ops-ollama
+    # GPU 支持：如果安装了 nvidia-docker，取消下面的注释
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      # 模型存储目录（模型文件很大，注意磁盘空间）
+      - ${OLLAMA_DATA_PATH:-./data/ollama}:/root/.ollama:rw
+    healthcheck:
+      # 健康检查：curl ollama API
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s  # Ollama 启动可能较慢
+    networks:
+      - netdata-ops-network
+    # Ollama 是 CPU/GPU 密集型服务
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
+
+  # ============================================================
+  # Neo4j 知识图谱（可选）
+  # ============================================================
+  # 用途：
+  # - Graph RAG：多跳推理增强
+  # - 知识图谱可视化
+  # - 运维实体关系建模
+  #
+  # 这是进阶功能，初期开发可注释掉
+  # ============================================================
+  # neo4j:
+  #   image: neo4j:5.20-community
+  #   container_name: netdata-ops-neo4j
+  #   environment:
+  #     - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-neo4j123456}
+  #     - NEO4J_PLUGINS=["apoc"]
+  #     - NEO4J_dbms_memory_pagecache_size=512M
+  #     - NEO4J_dbms_memory_heap_initial__size=512M
+  #     - NEO4J_dbms_memory_heap_max__size=1G
+  #   ports:
+  #     - "7474:7474"   # HTTP Browser
+  #     - "7687:7687"   # Bolt 协议
+  #   volumes:
+  #     - ${NEO4J_DATA_PATH:-./data/neo4j}:/data:rw
+  #   networks:
+  #     - netdata-ops-network
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 2G
+  #       reservations:
+  #         memory: 1G
+
+# ============================================================
+# 网络配置
+# ============================================================
+# 使用自定义网络的好处：
+# 1. 服务间可通过容器名互相访问
+# 2. 网络隔离，避免与其他项目冲突
+# 3. 更好的安全性
+# ============================================================
+networks:
+  netdata-ops-network:
+    driver: bridge
+    name: netdata-ops-network
+    # IP 地址管理（可选，默认自动分配）
+    # ipam:
+    #   config:
+    #     - subnet: 172.28.0.0/16
+
+# ============================================================
+# 卷配置（可选：使用命名卷而非绑定挂载）
+# ============================================================
+# 使用命名卷的好处：
+# 1. Docker 管理存储位置，跨平台兼容
+# 2. 更好的性能（尤其是 Mac/Windows）
+# 3. 易于备份和迁移
+#
+# 开发环境使用绑定挂载更方便查看数据
+# 生产环境推荐使用命名卷
+# ============================================================
+# volumes:
+#   milvus-data:
+#   mysql-data:
+#   redis-data:
+#   ollama-data:
