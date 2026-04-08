@@ -1,6 +1,8 @@
 # ============================================================
 # 智能运维问答与执行系统 - Docker Compose 配置
 # ============================================================
+
+name: netdata-ops
 #
 # 作者：刘一舟
 # 项目：面向 NetData 监控数据的智能运维问答与执行系统
@@ -120,13 +122,14 @@ services:
       # 日志级别：info（生产用 warn）
       - COMMON_LOG_LEVEL=info
     ports:
-      # 19530: gRPC 端口（SDK 连接）
+      # 19531: gRPC 端口（SDK 连接）
       # 9091: Metrics 端口（Prometheus 监控）
-      - "${MILVUS_GRPC_PORT:-19530}:19530"
+      - "${MILVUS_GRPC_PORT:-19531}:19530"
       - "${MILVUS_METRICS_PORT:-9091}:9091"
-    volumes:
-      # 挂载配置文件（可选，用于高级配置）
-      - ./config/milvus:/milvus/configs:ro
+    # 注意：Standalone 模式使用内置嵌入式配置
+    # 如需自定义配置，请使用 Cluster 模式或环境变量
+    # volumes:
+    #   - ./config/milvus:/milvus/configs:ro
     healthcheck:
       # 健康检查：使用 Milvus 自带的健康检查脚本
       test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]

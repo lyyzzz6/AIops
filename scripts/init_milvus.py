@@ -45,11 +45,20 @@ try:
         CollectionSchema,
         DataType,
         utility,
-        AnnSearchRequest,
-        RRFReranker,
     )
-except ImportError:
-    print("错误：未安装 pymilvus")
+    # 尝试导入可选的高级功能（不同版本可能不存在）
+    try:
+        from pymilvus import AnnSearchRequest
+    except ImportError:
+        AnnSearchRequest = None
+    try:
+        from pymilvus import RRFReranker
+    except ImportError:
+        RRFReranker = None
+except ImportError as e:
+    print(f"错误：导入 pymilvus 失败: {e}")
+    print(f"Python 解释器: {sys.executable}")
+    print(f"Python 路径: {sys.path}")
     print("请执行: pip install pymilvus>=2.4.0")
     sys.exit(1)
 
