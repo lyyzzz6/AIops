@@ -243,6 +243,31 @@ INSERT INTO `sys_config` (`config_key`, `config_value`, `config_type`, `descript
 ('execution.auto_approve_low_risk', 'true', 'boolean', '是否自动批准低风险命令'),
 ('execution.max_wait_time', '3600', 'number', '命令执行最大等待时间（秒）');
 
+-- ============================================================
+-- Agent审计日志表
+-- ============================================================
+DROP TABLE IF EXISTS `agent_audit_log`;
+CREATE TABLE `agent_audit_log` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '审计日志ID',
+    `trace_id` VARCHAR(64) NOT NULL COMMENT '链路追踪ID',
+    `user_id` VARCHAR(64) DEFAULT NULL COMMENT '用户ID',
+    `agent_name` VARCHAR(100) NOT NULL COMMENT 'Agent名称',
+    `intent_type` VARCHAR(50) DEFAULT NULL COMMENT '意图类型',
+    `query` VARCHAR(2000) DEFAULT NULL COMMENT '用户查询内容',
+    `success` TINYINT(1) NOT NULL DEFAULT 1 COMMENT '执行是否成功：0失败 1成功',
+    `duration_ms` BIGINT NOT NULL COMMENT '执行耗时（毫秒）',
+    `tool_calls` TEXT DEFAULT NULL COMMENT '调用的工具列表（逗号分隔）',
+    `error_message` VARCHAR(1000) DEFAULT NULL COMMENT '错误信息',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_trace_id` (`trace_id`),
+    KEY `idx_user_id` (`user_id`),
+    KEY `idx_agent_name` (`agent_name`),
+    KEY `idx_intent_type` (`intent_type`),
+    KEY `idx_created_at` (`created_at`),
+    KEY `idx_success` (`success`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Agent审计日志表';
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================
@@ -271,3 +296,17 @@ SELECT
 FROM execution_audit
 WHERE status IN ('completed', 'failed')
 GROUP BY DATE(created_at), risk_level;
+
+-- ============================================================
+-- 创建视图：Agent审计统计视图
+-- ============================================================
+CREATE OR REPLACE VIEW `v_agent_audit_statistics` AS
+SELECT
+    DATE(created_at) as audit_date,
+    agent_name,
+    intent_type,
+    COUNT(*) as total_count,
+    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as success_count,
+    AVG(duration_ms) as avg_duration_ms
+FROM agent_audit_log
+GROUP BY DATE(created_at), agent_name, intent_type;

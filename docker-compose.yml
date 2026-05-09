@@ -290,6 +290,80 @@ services:
           memory: 4G
 
   # ============================================================
+  # 异常检测服务（Python / FastAPI）
+  # ============================================================
+  # 用途：
+  # - 封装 IsolationForest / LOF / StatisticalDetector 多算法
+  # - 对接 NetData HTTP API 拉取时序指标
+  # - 将检测结果写入 MySQL 的 anomaly_detection 表，并可推送告警
+  #
+  # 通过 Dockerfile 多阶段构建，生产使用 gunicorn + uvicorn worker
+  # ============================================================
+  anomaly-detection:
+    build:
+      context: ./anomaly-detection-service
+      dockerfile: Dockerfile
+    image: netdata-ops-anomaly:latest
+    container_name: netdata-ops-anomaly
+    environment:
+      # 应用模式
+      - ENVIRONMENT=${ANOMALY_ENV:-production}
+      - DEBUG=${ANOMALY_DEBUG:-false}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      # 服务端口
+      - HOST=0.0.0.0
+      - PORT=8001
+      # NetData 指标源（默认连宿主机 NetData Agent）
+      - NETDATA_HOST=${NETDATA_HOST:-host.docker.internal}
+      - NETDATA_PORT=${NETDATA_PORT:-19999}
+      - NETDATA_TIMEOUT=${NETDATA_TIMEOUT:-10.0}
+      # MySQL：容器内通过服务名 mysql 访问，端口固定 3306
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-netdata_ops}
+      - MYSQL_USER=${MYSQL_USER:-ops_user}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-ops123456}
+      # Redis：容器内通过服务名 redis 访问
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-redis123456}
+      - REDIS_DB=${REDIS_DB:-0}
+      # 检测器默认参数
+      - DEFAULT_DETECTOR=${DEFAULT_DETECTOR:-isolation_forest}
+      - ANOMALY_THRESHOLD=${ANOMALY_THRESHOLD:-0.7}
+      - ALERT_THRESHOLD=${ALERT_THRESHOLD:-0.85}
+    ports:
+      - "${ANOMALY_PORT:-8001}:8001"
+    volumes:
+      # 日志与模型持久化；避免重建容器丢失训练好的 IsolationForest
+      - ${ANOMALY_LOGS_PATH:-./logs/anomaly}:/app/logs:rw
+      - ${ANOMALY_MODELS_PATH:-./data/anomaly_models}:/app/models:rw
+    extra_hosts:
+      # 让容器可以用 host.docker.internal 访问宿主机的 NetData
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # Dockerfile 内已定义 HEALTHCHECK，此处显式覆盖以使用 compose 变量
+      test: ["CMD", "curl", "-fsS", "http://localhost:8001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - netdata-ops-network
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  # ============================================================
   # Neo4j 知识图谱（可选）
   # ============================================================
   # 用途：
