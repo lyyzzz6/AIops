@@ -14,7 +14,7 @@
           v-for="conv in chat.conversations"
           :key="conv.id"
           class="conversation-item"
-          :class="{ active: conv.id === chat.currentConversationId }"
+          :class="{ active: conv.id === String(chat.currentConversationId) }"
           @click="chat.selectConversation(conv.id)"
         >
           <el-icon><ChatDotRound /></el-icon>
@@ -65,6 +65,8 @@
           :key="message.id"
           :message="message"
           @retry="retryMessage"
+          @execute-command="handleExecuteCommand"
+          @open-approval="handleOpenApproval"
         />
       </div>
       
@@ -97,11 +99,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, watch } from 'vue'
+import { ref, nextTick, watch, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Delete, ChatDotRound, Promotion, Fold, Expand } from '@element-plus/icons-vue'
 import { useChatStore, useSettingsStore } from '@/stores'
 import MessageItem from '@/components/MessageItem.vue'
+import { executionApi } from '@/api'
+import type { CommandSuggestion } from '@/types'
+
+const router = useRouter()
 
 // Stores
 const chat = useChatStore()
@@ -119,6 +126,11 @@ const examples = [
   '查看 nginx 服务状态',
 ]
 
+// 进入页面时拉取历史会话
+onMounted(async () => {
+  await chat.loadConversations()
+})
+
 // 创建新对话
 function createNewChat() {
   chat.createConversation()
@@ -128,10 +140,10 @@ function createNewChat() {
 async function handleSend() {
   const text = inputText.value.trim()
   if (!text || chat.isLoading) return
-  
+
   inputText.value = ''
   await chat.sendMessage(text)
-  
+
   // 滚动到底部
   await nextTick()
   scrollToBottom()
@@ -148,13 +160,53 @@ function retryMessage() {
   chat.regenerateLastReply()
 }
 
+// 发起执行：根据风险审批标志分流
+// - requiresApproval=false → 直接跳命令执行页预填
+// - requiresApproval=true  → 直接调 API 提交审批并跳转审批中心
+async function handleExecuteCommand(cmd: CommandSuggestion) {
+  if (!cmd.requiresApproval) {
+    router.push({ path: '/executions', query: { command: cmd.command } })
+    ElMessage.info('已跳转到命令执行页面')
+    return
+  }
+  // 需审批：直接提交审批请求并跳转审批中心
+  cmd.submitStatus = 'submitting'
+  try {
+    const audit = await executionApi.submit({ command: cmd.command })
+    cmd.submitStatus = 'submitted'
+    cmd.auditRequestId = audit.requestId
+    cmd.auditStatus = audit.status
+    const statusMsg =
+      audit.status === 'pending' ? '已提交审批，等待审批人处理' :
+      audit.status === 'approved' ? '风险较低，已自动批准' :
+      audit.status === 'rejected' ? '风险过高，已被自动拒绝' :
+      `提交成功，状态：${audit.status}`
+    ElMessage.success(`${statusMsg} (编号 ${audit.requestId})`)
+    router.push({ path: '/approvals', query: { tab: 'execution' } })
+  } catch (e: any) {
+    cmd.submitStatus = 'failed'
+    const msg = e?.response?.data?.message || e?.message || '提交审批失败'
+    ElMessage.error(`提交失败：${msg}，已跳转手动提交页`)
+    router.push({ path: '/executions', query: { command: cmd.command } })
+  }
+}
+
+// 前往审批中心：直接跳到命令审批 Tab，带上命令关键字
+function handleOpenApproval(cmd: CommandSuggestion) {
+  router.push({
+    path: '/approvals',
+    query: { tab: 'execution', command: cmd.command },
+  })
+}
+
 // 清空对话
 async function clearChat() {
   try {
     await ElMessageBox.confirm('确定要清空当前对话吗？', '提示', {
       type: 'warning',
     })
-    chat.clearCurrentConversation()
+    await chat.clearCurrentConversation()
+    ElMessage.success('已清空当前对话')
   } catch {
     // 取消
   }
@@ -179,7 +231,8 @@ watch(
 <style scoped lang="scss">
 .chat-layout {
   display: flex;
-  height: 100vh;
+  height: 100%;
+  min-height: calc(100vh - 56px);
   background: #f5f7fa;
 }
 

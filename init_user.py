@@ -1,8 +1,8 @@
 import subprocess
 import os
 
-# BCrypt hash for password 'password'
-bcrypt_password = "$2a$10$N9qo8uLOickgx2ZMRZoMye.IjzqAKL9xL5jvMFVdNJHvGCgTq/VEq"
+# BCrypt hash for password 'admin123'
+bcrypt_password = "$2a$10$uvYzCf2IDaHGGB3XsApA5OtuSa6LoLrzlfD0aMumWRCmVfRREWx/O"
 
 sql_commands = f"""
 USE netdata_ops;
@@ -16,7 +16,7 @@ with open('temp_init.sql', 'w') as f:
 
 # Execute
 result = subprocess.run(
-    ['docker', 'exec', '-i', 'netdata-mysql', 'mysql', '-u', 'root', '-proot123456'],
+    ['docker', 'exec', '-i', 'netdata-ops-mysql', 'mysql', '-u', 'root', '-proot123456'],
     input=sql_commands,
     text=True,
     capture_output=True

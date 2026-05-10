@@ -168,8 +168,8 @@ async function loadUsers() {
       size: pagination.size,
       keyword: searchKeyword.value || undefined,
     })
-    users.value = res.data?.records || []
-    pagination.total = res.data?.total || 0
+    users.value = res?.records || []
+    pagination.total = res?.total || 0
   } catch (e) {
     // error handled by interceptor
   } finally {
@@ -180,7 +180,7 @@ async function loadUsers() {
 async function loadRoles() {
   try {
     const res: any = await roleApi.getRoles()
-    allRoles.value = res.data || []
+    allRoles.value = res || []
   } catch (e) {
     // ignore
   }
@@ -263,8 +263,13 @@ async function handleDelete(row: any) {
   }
 }
 
-function getRoleTagType(role: string) {
-  const map: Record<string, string> = { SUPER_ADMIN: 'danger', ADMIN: 'warning', OPERATOR: '', VIEWER: 'info' }
+function getRoleTagType(role: string): 'primary' | 'success' | 'warning' | 'info' | 'danger' {
+  const map: Record<string, 'primary' | 'success' | 'warning' | 'info' | 'danger'> = {
+    SUPER_ADMIN: 'danger',
+    ADMIN: 'warning',
+    OPERATOR: 'primary',
+    VIEWER: 'info',
+  }
   return map[role] || 'info'
 }
 </script>

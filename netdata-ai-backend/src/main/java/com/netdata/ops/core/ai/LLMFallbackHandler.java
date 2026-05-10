@@ -13,12 +13,19 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
+import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RequestCallback;
+import org.springframework.web.client.ResponseExtractor;
 import org.springframework.web.client.RestTemplate;
 import reactor.core.publisher.Flux;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -196,6 +203,122 @@ public class LLMFallbackHandler {
     private Flux<String> invokeStreamPrimary(String prompt) {
         // 暂不实现流式调用，使用同步调用替代
         return Flux.just(invokePrimary(prompt));
+    }
+
+    /**
+     * 真·同步阻塞式流式调用 DeepSeek（OpenAI 兼容 SSE）
+     *
+     * <p>直接在当前线程持续读取 HTTP 响应流，每收到一个 delta 就回调 {@code onDelta}。
+     * 调用结束（收到 [DONE] 或流自然结束）后返回完整拼接文本。调用方捕获异常自行降级。
+     *
+     * @param prompt  提示词
+     * @param onDelta 每段 delta 文本回调（不会传入 null，可能为空串时会跳过）
+     * @return 完整拼接文本
+     */
+    public String streamSync(String prompt, Consumer<String> onDelta) {
+        totalCallCount.incrementAndGet();
+        try {
+            return streamPrimarySync(prompt, onDelta);
+        } catch (Exception e) {
+            fallbackCount.incrementAndGet();
+            log.warn("[LLM流式] 主路径失败，切换 Ollama 本地模型。原因: {}", e.getMessage());
+            try {
+                return streamFallbackSync(prompt, onDelta);
+            } catch (Exception ex) {
+                log.error("[LLM流式] 本地模型也失败: {}", ex.getMessage(), ex);
+                String tip = "抱歉，AI 服务暂时不可用，请稍后重试。";
+                if (onDelta != null) onDelta.accept(tip);
+                return tip;
+            }
+        }
+    }
+
+    /**
+     * DeepSeek 真流式（SSE）
+     */
+    private String streamPrimarySync(String prompt, Consumer<String> onDelta) {
+        log.info("[LLM流式] 调用 DeepSeek SSE，URL: {}, Model: {}", deepseekBaseUrl, deepseekModel);
+        String url = deepseekBaseUrl + "/chat/completions";
+        return executeSseRequest(url, deepseekApiKey, deepseekModel, prompt, onDelta);
+    }
+
+    /**
+     * Ollama 真流式（OpenAI 兼容 SSE）
+     */
+    private String streamFallbackSync(String prompt, Consumer<String> onDelta) {
+        log.info("[LLM流式] 调用 Ollama SSE，URL: {}, Model: {}", ollamaBaseUrl, ollamaModel);
+        String url = ollamaBaseUrl + "/chat/completions";
+        return executeSseRequest(url, "ollama", ollamaModel, prompt, onDelta);
+    }
+
+    /**
+     * 通用 OpenAI 兼容 SSE 流式执行：通过 RestTemplate.execute 读取原始 InputStream，
+     * 逐行解析 {@code data: {\"choices\":[{\"delta\":{\"content\":\"...\"}}]} }。
+     */
+    private String executeSseRequest(String url, String apiKey, String model, String prompt, Consumer<String> onDelta) {
+        final Map<String, Object> message = new HashMap<>();
+        message.put("role", "user");
+        message.put("content", prompt);
+
+        final Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("model", model);
+        requestBody.put("messages", Collections.singletonList(message));
+        requestBody.put("max_tokens", 1000);
+        requestBody.put("temperature", 0.7);
+        requestBody.put("stream", true);
+
+        final String bodyJson;
+        try {
+            bodyJson = objectMapper.writeValueAsString(requestBody);
+        } catch (Exception e) {
+            throw new RuntimeException("构建 SSE 请求体失败", e);
+        }
+
+        RequestCallback requestCallback = req -> {
+            req.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+            req.getHeaders().set(HttpHeaders.ACCEPT, MediaType.TEXT_EVENT_STREAM_VALUE);
+            if (apiKey != null && !apiKey.isEmpty()) {
+                req.getHeaders().set(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey);
+            }
+            req.getBody().write(bodyJson.getBytes(StandardCharsets.UTF_8));
+        };
+
+        ResponseExtractor<String> responseExtractor = (ClientHttpResponse response) -> {
+            if (!response.getStatusCode().is2xxSuccessful()) {
+                throw new RuntimeException("LLM SSE 请求失败，状态码: " + response.getStatusCode());
+            }
+            StringBuilder full = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(response.getBody(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.isEmpty()) continue;
+                    if (!line.startsWith("data:")) continue;
+                    String data = line.substring(5).trim();
+                    if (data.isEmpty()) continue;
+                    if ("[DONE]".equals(data)) break;
+                    try {
+                        JsonNode root = objectMapper.readTree(data);
+                        JsonNode choices = root.path("choices");
+                        if (!choices.isArray() || choices.size() == 0) continue;
+                        JsonNode delta = choices.get(0).path("delta");
+                        String piece = delta.path("content").asText("");
+                        if (piece == null || piece.isEmpty()) continue;
+                        full.append(piece);
+                        if (onDelta != null) {
+                            try { onDelta.accept(piece); } catch (Exception ex) {
+                                log.warn("[LLM流式] onDelta 回调异常: {}", ex.getMessage());
+                            }
+                        }
+                    } catch (Exception parseEx) {
+                        log.debug("[LLM流式] 解析 SSE 行失败，已忽略。line={}, err={}", data, parseEx.getMessage());
+                    }
+                }
+            }
+            return full.toString();
+        };
+
+        return restTemplate.execute(url, HttpMethod.POST, requestCallback, responseExtractor);
     }
 
     /**

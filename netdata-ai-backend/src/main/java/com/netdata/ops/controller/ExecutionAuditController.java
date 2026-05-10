@@ -25,7 +25,7 @@ public class ExecutionAuditController {
 
     @Operation(summary = "提交命令执行请求")
     @PostMapping
-    @RequirePermission("execution:submit")
+    @RequirePermission("execution:request")
     public R<ExecutionAudit> submitExecution(@RequestBody Map<String, String> body) {
         String command = body.get("command");
         String commandType = body.get("commandType");
@@ -50,7 +50,7 @@ public class ExecutionAuditController {
 
     @Operation(summary = "记录执行结果")
     @PutMapping("/{id}/result")
-    @RequirePermission("execution:submit")
+    @RequirePermission("execution:request")
     public R<ExecutionAudit> recordResult(@PathVariable Long id, @RequestBody Map<String, Object> body) {
         String result = (String) body.get("result");
         boolean success = Boolean.TRUE.equals(body.get("success"));
@@ -78,7 +78,7 @@ public class ExecutionAuditController {
 
     @Operation(summary = "命令风险预评估")
     @PostMapping("/risk-assess")
-    @RequirePermission("execution:submit")
+    @RequirePermission("execution:request")
     public R<Map<String, Object>> riskAssess(@RequestBody Map<String, String> body) {
         String command = body.get("command");
         // 使用submitExecution内部逻辑但不入库，直接返回评估结果

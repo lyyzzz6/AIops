@@ -87,16 +87,36 @@
                     v-if="!cmd.requiresApproval"
                     size="small"
                     type="primary"
+                    @click="$emit('executeCommand', cmd)"
                   >
-                    执行
+                    发起执行
                   </el-button>
-                  <el-button
-                    v-else
-                    size="small"
-                    type="warning"
-                  >
-                    申请审批
-                  </el-button>
+                  <template v-else>
+                    <el-button
+                      size="small"
+                      :type="submitBtnType(cmd)"
+                      :loading="cmd.submitStatus === 'submitting'"
+                      :disabled="cmd.submitStatus === 'submitting' || cmd.submitStatus === 'submitted'"
+                      @click="$emit('executeCommand', cmd)"
+                    >
+                      {{ submitBtnLabel(cmd) }}
+                    </el-button>
+                    <el-button
+                      size="small"
+                      type="primary"
+                      plain
+                      @click="$emit('openApproval', cmd)"
+                    >
+                      前往审批中心
+                    </el-button>
+                    <el-tag
+                      v-if="cmd.submitStatus === 'submitted' && cmd.auditRequestId"
+                      size="small"
+                      :type="auditTagType(cmd.auditStatus)"
+                    >
+                      {{ auditStatusLabel(cmd.auditStatus) }} {{ cmd.auditRequestId }}
+                    </el-tag>
+                  </template>
                 </div>
               </div>
             </div>
@@ -110,7 +130,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { User, Monitor, WarningFilled, Link, Platform } from '@element-plus/icons-vue'
-import type { Message } from '@/types'
+import type { Message, CommandSuggestion } from '@/types'
 import dayjs from 'dayjs'
 import MarkdownIt from 'markdown-it'
 import hljs from 'highlight.js'
@@ -123,6 +143,8 @@ const props = defineProps<{
 // Emits
 defineEmits<{
   retry: []
+  executeCommand: [cmd: CommandSuggestion]
+  openApproval: [cmd: CommandSuggestion]
 }>()
 
 // Markdown 渲染器
@@ -157,6 +179,50 @@ function getRiskType(level: string): 'success' | 'warning' | 'danger' | 'info' {
     case 'LOW': return 'success'
     case 'MEDIUM': return 'warning'
     case 'HIGH': return 'danger'
+    default: return 'info'
+  }
+}
+
+// 审批按钮文案
+function submitBtnLabel(cmd: CommandSuggestion): string {
+  switch (cmd.submitStatus) {
+    case 'submitting': return '提交中…'
+    case 'submitted': return '已提交'
+    case 'failed': return '重新申请'
+    default: return '申请审批'
+  }
+}
+
+// 审批按钮颜色
+function submitBtnType(cmd: CommandSuggestion): 'warning' | 'success' | 'danger' | 'info' {
+  switch (cmd.submitStatus) {
+    case 'submitted': return 'success'
+    case 'failed': return 'danger'
+    default: return 'warning'
+  }
+}
+
+// 审计状态标签
+ function auditStatusLabel(st?: string): string {
+  switch (st) {
+    case 'pending': return '待审批'
+    case 'approved': return '已批准'
+    case 'rejected': return '已拒绝'
+    case 'executing': return '执行中'
+    case 'completed': return '已完成'
+    case 'failed': return '失败'
+    default: return '已提交'
+  }
+}
+
+function auditTagType(st?: string): 'success' | 'warning' | 'danger' | 'info' {
+  switch (st) {
+    case 'approved':
+    case 'completed': return 'success'
+    case 'rejected':
+    case 'failed': return 'danger'
+    case 'pending':
+    case 'executing': return 'warning'
     default: return 'info'
   }
 }

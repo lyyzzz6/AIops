@@ -68,6 +68,12 @@ export interface CommandSuggestion {
   description: string
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
   requiresApproval: boolean
+  /** 前端临时字段：审批提交状态，用于按钮联动反馈 */
+  submitStatus?: 'idle' | 'submitting' | 'submitted' | 'failed'
+  /** 前端临时字段：提交后得到的审计单号 */
+  auditRequestId?: string
+  /** 前端临时字段：提交后得到的审计状态 */
+  auditStatus?: 'pending' | 'approved' | 'rejected' | 'executing' | 'completed' | 'failed'
 }
 
 /** 对话会话 */
@@ -85,6 +91,7 @@ export interface Conversation {
 export interface ChatRequest {
   sessionId?: string
   userId?: string
+  conversationId?: number | null
   query: string
 }
 
@@ -96,6 +103,32 @@ export interface ChatResponse {
   sources: SourceCitation[]
   suggestedCommands: CommandSuggestion[]
   executionTimeMs: number
+  conversationId?: number | null
+}
+
+/** 后端会话 DTO（chat_conversation 表） */
+export interface ChatConversationDTO {
+  id: number
+  sessionId: string
+  userId?: number
+  title: string
+  intent?: string
+  agentUsed?: string
+  messageCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+/** 后端消息 DTO（chat_message 表） */
+export interface ChatMessageDTO {
+  id: number
+  conversationId: number
+  role: MessageRole
+  content: string
+  tokens?: number
+  sources?: string
+  metadata?: string
+  createdAt: string
 }
 
 // ==================== 告警相关类型 ====================
@@ -128,7 +161,7 @@ export interface Alert {
 /** 审批状态 */
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'executed' | 'failed'
 
-/** 审批请求 */
+/** 审批请求（旧兼容结构） */
 export interface ApprovalRequest {
   id: string
   requestId: string
@@ -142,6 +175,115 @@ export interface ApprovalRequest {
   approvedAt?: Date
   executionResult?: string
   createdAt: Date
+}
+
+// ==================== RBAC / 审计 / 审批 / 执行 DTO ====================
+
+export interface SysRoleDTO {
+  id: number
+  roleCode: string
+  roleName: string
+  description?: string
+  parentId?: number
+  sortOrder?: number
+  status: number
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface SysPermissionDTO {
+  id: number
+  permissionCode: string
+  permissionName: string
+  module: string
+  action: string
+  description?: string
+  riskLevel: 'low' | 'medium' | 'high'
+}
+
+export interface OperationLogDTO {
+  id: number
+  traceId?: string
+  userId?: number
+  username?: string
+  module: string
+  action: string
+  target?: string
+  description?: string
+  requestMethod?: string
+  requestUrl?: string
+  requestParams?: string
+  responseCode?: number
+  ipAddress?: string
+  userAgent?: string
+  executionTimeMs?: number
+  status: number
+  errorMessage?: string
+  createdAt: string
+}
+
+export type PermissionRequestType = 'ROLE_ASSIGN' | 'PERMISSION_GRANT' | 'TEMP_ELEVATION'
+export type PermissionRequestStatus = 'PENDING' | 'REVIEWING' | 'APPROVED' | 'REJECTED' | 'EXPIRED'
+
+export interface PermissionRequestDTO {
+  id: number
+  requestNo: string
+  requesterId: number
+  requestType: PermissionRequestType
+  targetUserId?: number
+  targetRoleId?: number
+  targetPermissionIds?: string
+  reason: string
+  durationHours?: number
+  riskLevel: 'low' | 'medium' | 'high'
+  status: PermissionRequestStatus
+  currentApproverId?: number
+  approvedBy?: number
+  rejectReason?: string
+  approvedAt?: string
+  expiresAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ApprovalFlowDTO {
+  id: number
+  requestId: number
+  stepOrder: number
+  approverId: number
+  action?: 'APPROVE' | 'REJECT' | 'TRANSFER'
+  comment?: string
+  actedAt?: string
+  createdAt: string
+}
+
+export type ExecutionStatus = 'pending' | 'approved' | 'rejected' | 'executing' | 'completed' | 'failed'
+
+export interface ExecutionAuditDTO {
+  id: number
+  requestId: string
+  userId?: number
+  command: string
+  commandType?: string
+  targetHost?: string
+  riskLevel: 'low' | 'medium' | 'high' | 'critical'
+  riskScore: number
+  status: ExecutionStatus
+  approverId?: number
+  executionResult?: string
+  approvedAt?: string
+  executedAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
+/** 通用分页结果 */
+export interface PageResult<T> {
+  records: T[]
+  total: number
+  current: number
+  size: number
+  pages: number
 }
 
 // ==================== 知识库相关类型 ====================

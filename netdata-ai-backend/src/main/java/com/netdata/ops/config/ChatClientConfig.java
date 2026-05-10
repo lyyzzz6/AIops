@@ -37,7 +37,7 @@ public class ChatClientConfig {
     // DeepSeek API 配置（主路径）
     // ============================================================
 
-    @Value("${spring.ai.openai.api-key:sk-xxxxxxxx}")
+    @Value("${spring.ai.openai.api-key:sk-f37bb4263ac1451995941de334cec349}")
     private String deepseekApiKey;
 
     @Value("${spring.ai.openai.base-url:https://api.deepseek.com/v1}")

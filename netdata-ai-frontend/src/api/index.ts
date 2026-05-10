@@ -1,9 +1,27 @@
 import axios from 'axios'
-import type { ChatRequest, ChatResponse } from '@/types'
+import type {
+  ChatRequest,
+  ChatResponse,
+  ChatConversationDTO,
+  ChatMessageDTO,
+  PageResult,
+  SysRoleDTO,
+  SysPermissionDTO,
+  OperationLogDTO,
+  PermissionRequestDTO,
+  ExecutionAuditDTO,
+} from '@/types'
 import { ElMessage } from 'element-plus'
 
 /**
  * API 客户端配置
+ *
+ * 响应拦截器约定：
+ * - 后端返回 `R<T>`：拦截器原样返回整个对象，上层通过 `.data` 取出真正数据。
+ * - 后端直接返回 plain 对象（如 /chat）：拦截器返回该对象本身。
+ *
+ * 为减少视图层样板代码，本文件封装方法统一 `.then((res) => res.data ?? res)` 解包，
+ * 返回给调用方的就是业务数据本身。
  */
 const apiClient = axios.create({
   baseURL: '/api/v1',
@@ -118,28 +136,121 @@ function redirectToLogin() {
 }
 
 /**
+ * 从 R<T> 或 plain 响应中统一解包 data
+ */
+function unwrap<T>(res: any): T {
+  if (res && typeof res === 'object' && 'code' in res && 'data' in res) {
+    return res.data as T
+  }
+  return res as T
+}
+
+/**
  * 聊天 API
  */
 export const chatApi = {
   /**
-   * 发送消息
+   * 发送消息（/chat 返回 plain 对象，非 R<T>）
    */
   async sendMessage(request: ChatRequest): Promise<ChatResponse> {
-    return apiClient.post('/chat', request)
+    const res = await apiClient.post('/chat', request)
+    return res as unknown as ChatResponse
   },
 
   /**
-   * 流式对话（SSE）
-   * 注意：当前版本使用普通请求，后续可升级为 SSE
+   * 发送消息—流式输出（SSE）
+   * - 逐段 onDelta 下发纯文本；
+   * - 流结束时 onEnd 下发一条 ChatResponse（不包含 response 字段，由调用方自行累加 delta）。
    */
-  async *sendMessageStream(
+  async sendMessageStream(
     request: ChatRequest,
-    onMessage: (chunk: string) => void
-  ): AsyncGenerator<string> {
-    // 简化实现：使用普通请求
-    const response = await this.sendMessage(request)
-    onMessage(response.response)
-    yield response.response
+    callbacks: {
+      onDelta: (delta: string) => void
+      onEnd?: (payload: Omit<ChatResponse, 'response'>) => void
+      onError?: (err: Error) => void
+      signal?: AbortSignal
+    }
+  ): Promise<void> {
+    const token = localStorage.getItem('access_token')
+    const resp = await fetch('/api/v1/chat/stream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(request),
+      signal: callbacks.signal,
+    })
+    if (!resp.ok || !resp.body) {
+      const text = await resp.text().catch(() => '')
+      throw new Error(`流式接口调用失败：${resp.status} ${text}`)
+    }
+    const reader = resp.body.getReader()
+    const decoder = new TextDecoder('utf-8')
+    let buffer = ''
+    let currentEvent = 'message'
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      // SSE 以 \n\n 切分事件块
+      let sepIdx: number
+      while ((sepIdx = buffer.indexOf('\n\n')) !== -1) {
+        const rawEvent = buffer.slice(0, sepIdx)
+        buffer = buffer.slice(sepIdx + 2)
+        currentEvent = 'message'
+        const dataLines: string[] = []
+        for (const line of rawEvent.split('\n')) {
+          if (line.startsWith('event:')) {
+            currentEvent = line.slice(6).trim()
+          } else if (line.startsWith('data:')) {
+            dataLines.push(line.slice(5).trim())
+          }
+        }
+        if (dataLines.length === 0) continue
+        const dataStr = dataLines.join('\n')
+        let payload: any = null
+        try { payload = JSON.parse(dataStr) } catch { payload = dataStr }
+        if (currentEvent === 'chunk') {
+          if (payload && typeof payload.delta === 'string') callbacks.onDelta(payload.delta)
+        } else if (currentEvent === 'end') {
+          callbacks.onEnd?.(payload || {})
+        } else if (currentEvent === 'error') {
+          callbacks.onError?.(new Error(payload?.message || '流式异常'))
+        }
+      }
+    }
+  },
+
+  /**
+   * 分页获取当前用户的会话列表
+   */
+  async getConversations(params: { current?: number; size?: number } = {}): Promise<PageResult<ChatConversationDTO>> {
+    const res = await apiClient.get('/chat/conversations', { params })
+    return unwrap<PageResult<ChatConversationDTO>>(res)
+  },
+
+  /**
+   * 获取会话下的所有消息
+   */
+  async getMessages(conversationId: number): Promise<ChatMessageDTO[]> {
+    const res = await apiClient.get(`/chat/conversations/${conversationId}/messages`)
+    return unwrap<ChatMessageDTO[]>(res)
+  },
+
+  /**
+   * 删除会话
+   */
+  async deleteConversation(conversationId: number): Promise<void> {
+    await apiClient.delete(`/chat/conversations/${conversationId}`)
+  },
+
+  /**
+   * 清空会话消息但保留会话
+   */
+  async clearMessages(conversationId: number): Promise<void> {
+    await apiClient.delete(`/chat/conversations/${conversationId}/messages`)
   },
 }
 
@@ -147,25 +258,16 @@ export const chatApi = {
  * 知识库 API
  */
 export const knowledgeApi = {
-  /**
-   * 获取文档列表
-   */
   async getDocuments() {
-    return apiClient.get('/knowledge/documents')
+    const res = await apiClient.get('/knowledge/documents')
+    return unwrap(res)
   },
-
-  /**
-   * 上传文档
-   */
   async uploadDocument(data: { title: string; source: string; content: string }) {
-    return apiClient.post('/knowledge/upload', data)
+    const res = await apiClient.post('/knowledge/upload', data)
+    return unwrap(res)
   },
-
-  /**
-   * 删除文档
-   */
   async deleteDocument(id: string) {
-    return apiClient.delete(`/knowledge/documents/${id}`)
+    await apiClient.delete(`/knowledge/documents/${id}`)
   },
 }
 
@@ -173,44 +275,134 @@ export const knowledgeApi = {
  * 告警 API
  */
 export const alertApi = {
-  /**
-   * 获取告警列表
-   */
   async getAlerts(params?: { status?: string; severity?: string }) {
-    return apiClient.get('/alerts', { params })
+    const res = await apiClient.get('/alerts', { params })
+    return unwrap(res)
   },
-
-  /**
-   * 获取告警统计
-   */
   async getStats() {
-    return apiClient.get('/alerts/stats')
+    const res = await apiClient.get('/alerts/stats')
+    return unwrap(res)
   },
 }
 
 /**
- * 审批 API
+ * 权限审批 API（RBAC，对齐 ApprovalController）
  */
 export const approvalApi = {
-  /**
-   * 获取待审批列表
-   */
-  async getPendingApprovals() {
-    return apiClient.get('/approvals/pending')
+  /** 提交权限申请 */
+  async submitRequest(data: {
+    requestType: string
+    targetUserId?: number
+    targetRoleId?: number
+    targetPermissionIds?: string
+    reason: string
+    durationHours?: number
+  }): Promise<PermissionRequestDTO> {
+    const res = await apiClient.post('/approvals/requests', data)
+    return unwrap<PermissionRequestDTO>(res)
   },
-
-  /**
-   * 审批通过
-   */
-  async approve(id: string) {
-    return apiClient.post(`/approvals/${id}/approve`)
+  /** 审批通过 */
+  async approve(id: number, comment?: string) {
+    const res = await apiClient.put(`/approvals/requests/${id}/approve`, { comment })
+    return unwrap(res)
   },
+  /** 审批拒绝 */
+  async reject(id: number, rejectReason: string) {
+    const res = await apiClient.put(`/approvals/requests/${id}/reject`, { rejectReason })
+    return unwrap(res)
+  },
+  /** 转交审批 */
+  async transfer(id: number, transferToUserId: number, comment?: string) {
+    const res = await apiClient.put(`/approvals/requests/${id}/transfer`, { transferToUserId, comment })
+    return unwrap(res)
+  },
+  /** 我的待审批列表 */
+  async getPending(params: { current?: number; size?: number } = {}) {
+    const res = await apiClient.get('/approvals/pending', { params })
+    return unwrap<PageResult<PermissionRequestDTO>>(res)
+  },
+  /** 我的申请记录 */
+  async getMyRequests(params: { current?: number; size?: number; status?: string } = {}) {
+    const res = await apiClient.get('/approvals/my-requests', { params })
+    return unwrap<PageResult<PermissionRequestDTO>>(res)
+  },
+  /** 全部审批记录（管理员） */
+  async getAll(params: { current?: number; size?: number; status?: string; requestType?: string } = {}) {
+    const res = await apiClient.get('/approvals/requests', { params })
+    return unwrap<PageResult<PermissionRequestDTO>>(res)
+  },
+  /** 审批详情含审批流 */
+  async getDetail(id: number) {
+    const res = await apiClient.get(`/approvals/requests/${id}`)
+    return unwrap<Record<string, any>>(res)
+  },
+  /** 审批统计 */
+  async getStats() {
+    const res = await apiClient.get('/approvals/stats')
+    return unwrap<Record<string, any>>(res)
+  },
+}
 
-  /**
-   * 审批拒绝
-   */
-  async reject(id: string, reason: string) {
-    return apiClient.post(`/approvals/${id}/reject`, { reason })
+/**
+ * 命令执行审计 API（对齐 ExecutionAuditController）
+ */
+export const executionApi = {
+  /** 提交命令执行请求 */
+  async submit(data: { command: string; commandType?: string; targetHost?: string }) {
+    const res = await apiClient.post('/executions', data)
+    return unwrap<ExecutionAuditDTO>(res)
+  },
+  /** 风险预评估 */
+  async riskAssess(command: string) {
+    const res = await apiClient.post('/executions/risk-assess', { command })
+    return unwrap<{ riskLevel: string; riskScore: number; status: string; commandType: string }>(res)
+  },
+  /** 审批通过 */
+  async approve(id: number) {
+    const res = await apiClient.put(`/executions/${id}/approve`)
+    return unwrap<ExecutionAuditDTO>(res)
+  },
+  /** 审批拒绝 */
+  async reject(id: number, reason: string) {
+    const res = await apiClient.put(`/executions/${id}/reject`, { reason })
+    return unwrap<ExecutionAuditDTO>(res)
+  },
+  /** 记录执行结果 */
+  async recordResult(id: number, result: string, success: boolean) {
+    const res = await apiClient.put(`/executions/${id}/result`, { result, success })
+    return unwrap<ExecutionAuditDTO>(res)
+  },
+  /** 分页查询审计记录 */
+  async list(params: { current?: number; size?: number; status?: string; riskLevel?: string; targetHost?: string } = {}) {
+    const res = await apiClient.get('/executions', { params })
+    return unwrap<PageResult<ExecutionAuditDTO>>(res)
+  },
+  /** 执行统计 */
+  async getStats() {
+    const res = await apiClient.get('/executions/stats')
+    return unwrap<Record<string, any>>(res)
+  },
+}
+
+/**
+ * 操作审计日志 API（对齐 OperationLogController）
+ */
+export const operationLogApi = {
+  async list(params: {
+    current?: number
+    size?: number
+    module?: string
+    action?: string
+    username?: string
+    startTime?: string
+    endTime?: string
+  } = {}) {
+    const res = await apiClient.get('/operation-logs', { params })
+    return unwrap<PageResult<OperationLogDTO>>(res)
+  },
+  async getStats() {
+    const res = await apiClient.get('/operation-logs/stats')
+    return unwrap<Record<string, any>>(res)
   },
 }
 
@@ -233,44 +425,74 @@ export const authApi = {
 }
 
 /**
- * 用户管理 API
+ * 用户管理 API（对齐 UserController）
  */
 export const userApi = {
-  async getUsers(params?: { current?: number; size?: number; keyword?: string }) {
-    return apiClient.get('/users', { params })
+  async getUsers(params: { current?: number; size?: number; keyword?: string } = {}) {
+    const res = await apiClient.get('/users', { params })
+    return unwrap(res)
+  },
+  async getUser(id: number) {
+    const res = await apiClient.get(`/users/${id}`)
+    return unwrap(res)
   },
   async createUser(data: { username: string; password: string; nickname: string; email?: string; roleIds?: number[] }) {
-    return apiClient.post('/users', data)
+    const res = await apiClient.post('/users', data)
+    return unwrap(res)
   },
   async updateUser(id: number, data: { nickname?: string; email?: string; status?: number }) {
-    return apiClient.put(`/users/${id}`, data)
+    const res = await apiClient.put(`/users/${id}`, data)
+    return unwrap(res)
   },
   async deleteUser(id: number) {
-    return apiClient.delete(`/users/${id}`)
+    await apiClient.delete(`/users/${id}`)
   },
+  /** 重置其他用户密码（对齐后端 PUT /users/{id}/password） */
   async resetPassword(id: number, newPassword: string) {
-    return apiClient.put(`/users/${id}/reset-password`, { newPassword })
+    await apiClient.put(`/users/${id}/password`, { newPassword })
+  },
+  /** 修改自己的密码 */
+  async changeOwnPassword(oldPassword: string, newPassword: string) {
+    await apiClient.put('/users/me/password', { oldPassword, newPassword })
   },
   async assignRoles(id: number, roleIds: number[]) {
-    return apiClient.put(`/users/${id}/roles`, { roleIds })
+    await apiClient.post(`/users/${id}/roles`, { roleIds })
   },
 }
 
 /**
- * 角色管理 API
+ * 角色管理 API（对齐 RoleController）
  */
 export const roleApi = {
-  async getRoles() {
-    return apiClient.get('/roles')
+  async getRoles(): Promise<SysRoleDTO[]> {
+    const res = await apiClient.get('/roles')
+    return unwrap<SysRoleDTO[]>(res)
+  },
+  async getRole(id: number): Promise<SysRoleDTO> {
+    const res = await apiClient.get(`/roles/${id}`)
+    return unwrap<SysRoleDTO>(res)
   },
   async createRole(data: { roleCode: string; roleName: string; description?: string }) {
-    return apiClient.post('/roles', data)
+    const res = await apiClient.post('/roles', data)
+    return unwrap(res)
   },
+  async updateRole(id: number, data: Partial<SysRoleDTO>) {
+    const res = await apiClient.put(`/roles/${id}`, data)
+    return unwrap(res)
+  },
+  /** 获取某角色的权限列表 */
+  async getRolePermissions(roleId: number): Promise<SysPermissionDTO[]> {
+    const res = await apiClient.get(`/roles/${roleId}/permissions`)
+    return unwrap<SysPermissionDTO[]>(res)
+  },
+  /** 给角色分配权限 */
   async assignPermissions(roleId: number, permissionIds: number[]) {
-    return apiClient.put(`/roles/${roleId}/permissions`, { permissionIds })
+    await apiClient.put(`/roles/${roleId}/permissions`, { permissionIds })
   },
-  async getPermissions() {
-    return apiClient.get('/roles/permissions')
+  /** 获取系统所有权限（对齐后端 /roles/permissions/all） */
+  async getAllPermissions(): Promise<SysPermissionDTO[]> {
+    const res = await apiClient.get('/roles/permissions/all')
+    return unwrap<SysPermissionDTO[]>(res)
   },
 }
 
@@ -278,9 +500,6 @@ export const roleApi = {
  * 系统 API
  */
 export const systemApi = {
-  /**
-   * 健康检查
-   */
   async health() {
     return apiClient.get('/health')
   },

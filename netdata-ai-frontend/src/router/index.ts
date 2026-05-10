@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -29,13 +30,31 @@ const router = createRouter({
       path: '/knowledge',
       name: 'knowledge',
       component: () => import('@/views/KnowledgeBaseView.vue'),
-      meta: { title: '知识库管理', permission: 'knowledge:read' },
+      meta: { title: '知识库管理' },
     },
     {
-      path: '/approval',
-      name: 'approval',
-      component: () => import('@/views/ExecutionApprovalView.vue'),
-      meta: { title: '执行审批', permission: 'approval:approve' },
+      path: '/executions',
+      name: 'executions',
+      component: () => import('@/views/ExecutionRequestView.vue'),
+      meta: { title: '命令执行' },
+    },
+    {
+      path: '/approvals',
+      name: 'approvals',
+      component: () => import('@/views/ApprovalCenterView.vue'),
+      meta: { title: '审批中心' },
+    },
+    {
+      path: '/operation-logs',
+      name: 'operation-logs',
+      component: () => import('@/views/OperationLogView.vue'),
+      meta: { title: '操作审计' },
+    },
+    {
+      path: '/roles',
+      name: 'roles',
+      component: () => import('@/views/RoleManagementView.vue'),
+      meta: { title: '角色权限', permission: 'system:config' },
     },
     {
       path: '/users',
@@ -43,11 +62,17 @@ const router = createRouter({
       component: () => import('@/views/UserManagementView.vue'),
       meta: { title: '用户管理', permission: 'user:read' },
     },
+    {
+      path: '/403',
+      name: 'forbidden',
+      component: () => import('@/views/ChatView.vue'),
+      meta: { title: '权限不足', public: true },
+    },
   ],
 })
 
-// 路由守卫：认证检查 + 页面标题
-router.beforeEach((to, _from, next) => {
+// 路由守卫：认证检查 + 权限检查 + 页面标题
+router.beforeEach(async (to, _from, next) => {
   document.title = `${to.meta.title || '智能运维'} - NetData Ops`
 
   // 公开页面无需认证
@@ -61,6 +86,24 @@ router.beforeEach((to, _from, next) => {
   if (!token) {
     next({ path: '/login', query: { redirect: to.fullPath } })
     return
+  }
+
+  // 权限检查：若路由声明了 permission，则校验当前用户权限
+  const required = to.meta.permission as string | undefined
+  if (required) {
+    const authStore = useAuthStore()
+    // 若尚未加载用户信息，先拉取
+    if (!authStore.user) {
+      try {
+        await authStore.fetchUserInfo()
+      } catch {
+        /* ignore */
+      }
+    }
+    if (!authStore.hasPermission(required)) {
+      next({ path: '/chat' })
+      return
+    }
   }
 
   next()
