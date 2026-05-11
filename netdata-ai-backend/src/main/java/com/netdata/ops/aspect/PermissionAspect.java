@@ -10,25 +10,21 @@ import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.springframework.stereotype.Component;
 
-/**
- * 权限检查切面
- * 拦截带有@RequirePermission注解的方法，验证权限
- */
 @Slf4j
 @Aspect
 @Component
 public class PermissionAspect {
 
+    private static final String SUPER_ADMIN_CODE = "SUPER_ADMIN";
+
     @Around("@annotation(requirePermission)")
     public Object checkPermission(ProceedingJoinPoint joinPoint, RequirePermission requirePermission) throws Throwable {
         String permissionCode = requirePermission.value();
 
-        // SUPER_ADMIN角色拥有所有权限
-        if (SecurityUtils.hasRole("SUPER_ADMIN")) {
+        if (SecurityUtils.hasRole(SUPER_ADMIN_CODE)) {
             return joinPoint.proceed();
         }
 
-        // 检查用户是否拥有指定权限
         if (!SecurityUtils.hasPermission(permissionCode)) {
             log.warn("权限不足: user={}, required={}", SecurityUtils.getCurrentUsername(), permissionCode);
             throw new BusinessException(ErrorCode.PERMISSION_DENIED);

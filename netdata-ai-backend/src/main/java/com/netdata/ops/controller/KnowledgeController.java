@@ -1,6 +1,8 @@
 package com.netdata.ops.controller;
 
 import com.netdata.ops.annotation.RequirePermission;
+import com.netdata.ops.core.rag.HybridRetriever;
+import com.netdata.ops.core.rag.RAGService;
 import com.netdata.ops.dto.response.PageResult;
 import com.netdata.ops.dto.response.R;
 import com.netdata.ops.entity.KnowledgeDocument;
@@ -23,6 +25,7 @@ import java.util.Map;
 public class KnowledgeController {
 
     private final KnowledgeService knowledgeService;
+    private final RAGService ragService;
 
     @Operation(summary = "分页查询文档列表")
     @GetMapping("/documents")
@@ -77,5 +80,14 @@ public class KnowledgeController {
     @RequirePermission("knowledge:read")
     public R<Map<String, Object>> getStats() {
         return R.ok(knowledgeService.getStats());
+    }
+
+    @Operation(summary = "检索知识")
+    @PostMapping("/retrieve")
+    @RequirePermission("knowledge:read")
+    public R<List<HybridRetriever.RetrievalResult>> retrieve(@RequestBody Map<String, Object> body) {
+        String query = (String) body.get("query");
+        Integer topK = body.get("topK") != null ? (Integer) body.get("topK") : 5;
+        return R.ok(ragService.retrieve(query, topK));
     }
 }

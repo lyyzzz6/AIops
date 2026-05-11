@@ -18,6 +18,7 @@
           placeholder="搜索文档..."
           clearable
           style="width: 300px"
+          @input="handleSearch"
         >
           <template #prefix>
             <el-icon><Search /></el-icon>
@@ -44,9 +45,9 @@
             {{ formatTime(row.createdAt) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
-            <el-button text type="primary">查看</el-button>
+            <el-button text type="primary" @click="viewDocument(row)">查看</el-button>
             <el-button text type="danger" @click="deleteDocument(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -84,93 +85,151 @@
         <el-button type="primary" @click="uploadDocument">上传</el-button>
       </template>
     </el-dialog>
+    
+    <!-- 查看文档对话框 -->
+    <el-dialog v-model="showViewDialog" title="文档详情" width="700px">
+      <el-descriptions :column="2" border v-if="currentDocument">
+        <el-descriptions-item label="标题">{{ currentDocument.title }}</el-descriptions-item>
+        <el-descriptions-item label="来源">{{ currentDocument.source }}</el-descriptions-item>
+        <el-descriptions-item label="分类">{{ currentDocument.category || '未分类' }}</el-descriptions-item>
+        <el-descriptions-item label="状态">
+          <el-tag :type="getStatusType(currentDocument.status)" size="small">
+            {{ getStatusText(currentDocument.status) }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="字数">{{ currentDocument.wordCount }}</el-descriptions-item>
+        <el-descriptions-item label="切片数">{{ currentDocument.chunkCount }}</el-descriptions-item>
+        <el-descriptions-item label="创建时间" :span="2">{{ currentDocument.createdAt }}</el-descriptions-item>
+      </el-descriptions>
+      <el-divider>文档内容预览</el-divider>
+      <div class="document-content" v-if="documentContent">{{ documentContent }}</div>
+      <div v-else class="empty-content">暂无内容</div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Upload, Search } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import type { Document } from '@/types'
+import { knowledgeApi } from '@/api'
 
 const searchKeyword = ref('')
 const showUploadDialog = ref(false)
+const showViewDialog = ref(false)
+const loading = ref(false)
+const currentPage = ref(1)
+const pageSize = ref(10)
+const total = ref(0)
 
 const uploadForm = ref({
   title: '',
   source: '',
   category: 'manual',
+  contentType: 'text',
   content: '',
 })
 
-// 模拟文档数据
-const documents = ref<Document[]>([
-  {
-    id: '1',
-    title: 'Linux 服务器运维手册',
-    source: 'https://example.com/linux-ops',
-    contentType: 'markdown',
-    category: 'manual',
-    wordCount: 15000,
-    chunkCount: 45,
-    status: 'completed',
-    createdAt: new Date(),
-  },
-  {
-    id: '2',
-    title: 'Nginx 性能调优指南',
-    source: 'https://example.com/nginx-tuning',
-    contentType: 'markdown',
-    category: 'practice',
-    wordCount: 8000,
-    chunkCount: 25,
-    status: 'completed',
-    createdAt: new Date(Date.now() - 86400000),
-  },
-])
+const currentDocument = ref<Document | null>(null)
+const documentContent = ref('')
+
+const documents = ref<Document[]>([])
 
 // 获取状态类型
-function getStatusType(status: string): 'success' | 'warning' | 'danger' {
+function getStatusType(status: number): 'success' | 'warning' | 'danger' {
   switch (status) {
-    case 'completed': return 'success'
-    case 'processing': return 'warning'
+    case 1: return 'success'
+    case 0: return 'warning'
     default: return 'danger'
   }
 }
 
 // 获取状态文本
-function getStatusText(status: string): string {
+function getStatusText(status: number): string {
   switch (status) {
-    case 'completed': return '已完成'
-    case 'processing': return '处理中'
+    case 1: return '已完成'
+    case 0: return '处理中'
     default: return '失败'
   }
 }
 
 // 格式化时间
-function formatTime(time: Date): string {
+function formatTime(time: string): string {
   return dayjs(time).format('YYYY-MM-DD HH:mm')
 }
 
-// 上传文档
+// 加载文档列表
+async function loadDocuments() {
+  loading.value = true
+  try {
+    const result = await knowledgeApi.getDocuments({
+      current: currentPage.value,
+      size: pageSize.value,
+      keyword: searchKeyword.value || undefined,
+    })
+    documents.value = result.records || []
+    total.value = result.total || 0
+  } catch (error) {
+    ElMessage.error('加载文档失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+// 搜索文档
+function handleSearch() {
+  currentPage.value = 1
+  loadDocuments()
+}
+
+// 创建文档
 async function uploadDocument() {
   if (!uploadForm.value.title || !uploadForm.value.content) {
     ElMessage.warning('请填写完整信息')
     return
   }
   
-  // 模拟上传
-  ElMessage.success('文档上传成功')
-  showUploadDialog.value = false
-  
-  // 重置表单
-  uploadForm.value = {
-    title: '',
-    source: '',
-    category: 'manual',
-    content: '',
+  loading.value = true
+  try {
+    await knowledgeApi.createDocument({
+      title: uploadForm.value.title,
+      source: uploadForm.value.source || 'manual/upload',
+      contentType: uploadForm.value.contentType,
+      category: uploadForm.value.category,
+      content: uploadForm.value.content,
+    })
+    ElMessage.success('文档创建成功')
+    showUploadDialog.value = false
+    loadDocuments()
+    
+    // 重置表单
+    uploadForm.value = {
+      title: '',
+      source: '',
+      category: 'manual',
+      contentType: 'text',
+      content: '',
+    }
+  } catch (error) {
+    ElMessage.error('创建文档失败')
+  } finally {
+    loading.value = false
   }
+}
+
+// 查看文档
+async function viewDocument(doc: Document) {
+  try {
+    const fullDoc = await knowledgeApi.getDocumentById(doc.id)
+    currentDocument.value = fullDoc
+    documentContent.value = fullDoc.content || '暂无内容'
+  } catch {
+    currentDocument.value = doc
+    documentContent.value = doc.content || '无法加载内容'
+  }
+  showViewDialog.value = true
 }
 
 // 删除文档
@@ -179,7 +238,7 @@ async function deleteDocument(doc: Document) {
     await ElMessageBox.confirm(`确定要删除文档「${doc.title}」吗？`, '提示', {
       type: 'warning',
     })
-    // 删除文档
+    await knowledgeApi.deleteDocument(doc.id as string)
     const index = documents.value.findIndex(d => d.id === doc.id)
     if (index > -1) {
       documents.value.splice(index, 1)
@@ -189,6 +248,11 @@ async function deleteDocument(doc: Document) {
     // 取消
   }
 }
+
+// 初始化加载
+onMounted(() => {
+  loadDocuments()
+})
 </script>
 
 <style scoped lang="scss">
@@ -204,5 +268,22 @@ async function deleteDocument(doc: Document) {
 
 .search-bar {
   margin-bottom: 16px;
+}
+
+.document-content {
+  padding: 12px;
+  background: #f5f7fa;
+  border-radius: 4px;
+  max-height: 400px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.empty-content {
+  padding: 20px;
+  text-align: center;
+  color: #909399;
 }
 </style>

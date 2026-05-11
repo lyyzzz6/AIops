@@ -6,13 +6,14 @@
 --     - 创建数据库表结构
 --     - 初始化基础数据
 --     - 创建必要的索引
+--     - RBAC权限管理相关表
 --
 -- 使用方法：
 --     1. Docker 首次启动时自动执行
 --     2. 或手动执行：mysql -u root -p netdata_ops < sql/init.sql
 --
 -- 作者：刘一舟
--- 更新时间：2026-04-03
+-- 更新时间：2026-05-10
 -- ============================================================
 
 -- 设置字符集
@@ -30,20 +31,157 @@ CREATE TABLE `sys_user` (
     `nickname` VARCHAR(100) DEFAULT NULL COMMENT '昵称',
     `email` VARCHAR(100) DEFAULT NULL COMMENT '邮箱',
     `phone` VARCHAR(20) DEFAULT NULL COMMENT '手机号',
-    `role` VARCHAR(20) NOT NULL DEFAULT 'viewer' COMMENT '角色：admin/operator/viewer',
+    `avatar` VARCHAR(255) DEFAULT NULL COMMENT '头像URL',
+    `role` VARCHAR(20) NOT NULL DEFAULT 'viewer' COMMENT '角色：admin/operator/viewer（兼容旧字段）',
     `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态：0禁用 1启用',
+    `last_login_at` DATETIME DEFAULT NULL COMMENT '最后登录时间',
+    `last_login_ip` VARCHAR(50) DEFAULT NULL COMMENT '最后登录IP',
+    `login_fail_count` INT NOT NULL DEFAULT 0 COMMENT '连续登录失败次数',
+    `locked_until` DATETIME DEFAULT NULL COMMENT '账户锁定截止时间',
+    `deleted` TINYINT(1) DEFAULT 0 COMMENT '逻辑删除：0正常 1已删除',
+    `password_changed_at` DATETIME DEFAULT NULL COMMENT '密码最后修改时间',
+    `password_expire_at` DATETIME DEFAULT NULL COMMENT '密码过期时间',
+    `is_first_login` TINYINT(1) DEFAULT 1 COMMENT '是否首次登录，1=是，0=否',
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_username` (`username`),
     KEY `idx_role` (`role`),
-    KEY `idx_status` (`status`)
+    KEY `idx_status` (`status`),
+    KEY `idx_deleted` (`deleted`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系统用户表';
 
 -- 插入默认管理员账户
--- 密码：admin123（BCrypt加密后）
-INSERT INTO `sys_user` (`username`, `password`, `nickname`, `role`) VALUES
-('admin', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iAt6Z5EH', '系统管理员', 'admin');
+-- 密码：admin123（BCrypt加密后），首次登录必须修改
+INSERT INTO `sys_user` (`username`, `password`, `nickname`, `email`, `status`, `login_fail_count`, `deleted`, `is_first_login`, `created_at`, `updated_at`) VALUES
+('admin', '$2a$10$dXJ3SW6G7P50lGmMkkmwe.20cQQubK3.HZWzG3YB1tlRy.fqvM/BG', '系统管理员', 'admin@netdata.ops', 1, 0, 0, 1, NOW(), NOW());
+
+-- ============================================================
+-- 角色表
+-- ============================================================
+DROP TABLE IF EXISTS `sys_role`;
+CREATE TABLE `sys_role` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '角色ID',
+    `role_code` VARCHAR(50) NOT NULL COMMENT '角色编码',
+    `role_name` VARCHAR(100) NOT NULL COMMENT '角色名称',
+    `description` VARCHAR(500) DEFAULT NULL COMMENT '角色描述',
+    `parent_id` BIGINT DEFAULT NULL COMMENT '父角色ID（支持角色继承）',
+    `sort_order` INT NOT NULL DEFAULT 0 COMMENT '排序号',
+    `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态：0禁用 1启用',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_role_code` (`role_code`),
+    KEY `idx_parent_id` (`parent_id`),
+    KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系统角色表';
+
+-- 插入默认角色
+INSERT INTO `sys_role` (`id`, `role_code`, `role_name`, `description`, `parent_id`, `sort_order`) VALUES
+(1, 'SUPER_ADMIN', '超级管理员', '系统最高权限，可管理所有功能和用户', NULL, 1),
+(2, 'ADMIN', '管理员', '系统管理权限，可管理用户和配置', 1, 2),
+(3, 'OPERATOR', '运维操作员', '运维操作权限，可执行命令和管理知识库', 2, 3),
+(4, 'VIEWER', '只读观察者', '只读权限，仅可查看系统信息', 3, 4);
+
+-- ============================================================
+-- 权限表
+-- ============================================================
+DROP TABLE IF EXISTS `sys_permission`;
+CREATE TABLE `sys_permission` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '权限ID',
+    `permission_code` VARCHAR(100) NOT NULL COMMENT '权限编码（module:action）',
+    `permission_name` VARCHAR(100) NOT NULL COMMENT '权限名称',
+    `module` VARCHAR(50) NOT NULL COMMENT '所属模块',
+    `action` VARCHAR(50) NOT NULL COMMENT '操作类型',
+    `description` VARCHAR(500) DEFAULT NULL COMMENT '权限描述',
+    `risk_level` VARCHAR(20) NOT NULL DEFAULT 'low' COMMENT '风险等级：low/medium/high',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_permission_code` (`permission_code`),
+    KEY `idx_module` (`module`),
+    KEY `idx_risk_level` (`risk_level`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系统权限表';
+
+-- 插入默认权限
+INSERT INTO `sys_permission` (`id`, `permission_code`, `permission_name`, `module`, `action`, `description`, `risk_level`) VALUES
+-- 用户管理模块
+(1, 'user:read', '查看用户', 'user', 'read', '查看用户列表和详情', 'low'),
+(2, 'user:write', '编辑用户', 'user', 'write', '创建和编辑用户信息', 'medium'),
+(3, 'user:delete', '删除用户', 'user', 'delete', '删除用户账户', 'high'),
+(4, 'user:role_assign', '分配角色', 'user', 'role_assign', '为用户分配或撤销角色', 'high'),
+-- 知识库管理模块
+(5, 'knowledge:read', '查看知识库', 'knowledge', 'read', '查看知识库文档列表', 'low'),
+(6, 'knowledge:write', '编辑知识库', 'knowledge', 'write', '上传和编辑知识库文档', 'medium'),
+(7, 'knowledge:delete', '删除文档', 'knowledge', 'delete', '从知识库中删除文档', 'medium'),
+-- 告警管理模块
+(8, 'alert:read', '查看告警', 'alert', 'read', '查看告警列表和详情', 'low'),
+(9, 'alert:write', '编辑告警规则', 'alert', 'write', '创建和编辑告警规则', 'medium'),
+(10, 'alert:handle', '处理告警', 'alert', 'handle', '标记告警为已处理', 'low'),
+-- 执行管理模块
+(11, 'execution:read', '查看执行记录', 'execution', 'read', '查看命令执行历史', 'low'),
+(12, 'execution:request', '发起执行请求', 'execution', 'request', '发起命令执行请求', 'medium'),
+(13, 'execution:approve', '审批执行请求', 'execution', 'approve', '审批他人的执行请求', 'high'),
+-- 审批模块
+(14, 'approval:read', '查看审批', 'approval', 'read', '查看审批请求列表', 'low'),
+(15, 'approval:process', '处理审批', 'approval', 'process', '审批或拒绝请求', 'medium'),
+-- 系统管理模块
+(16, 'system:config', '系统配置', 'system', 'config', '修改系统配置参数', 'high'),
+(17, 'system:read', '系统查看', 'system', 'read', '查看系统监控和指标', 'low');
+
+-- ============================================================
+-- 用户角色关联表
+-- ============================================================
+DROP TABLE IF EXISTS `user_role`;
+CREATE TABLE `user_role` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键',
+    `user_id` BIGINT NOT NULL COMMENT '用户ID',
+    `role_id` BIGINT NOT NULL COMMENT '角色ID',
+    `granted_by` BIGINT DEFAULT NULL COMMENT '授权人ID',
+    `granted_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '授权时间',
+    `expires_at` DATETIME DEFAULT NULL COMMENT '过期时间（临时授权）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_user_role` (`user_id`, `role_id`),
+    KEY `idx_user_id` (`user_id`),
+    KEY `idx_role_id` (`role_id`),
+    KEY `idx_expires_at` (`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户角色关联表';
+
+-- 为admin用户分配SUPER_ADMIN角色
+INSERT INTO `user_role` (`user_id`, `role_id`, `granted_by`) VALUES
+(1, 1, 1);
+
+-- ============================================================
+-- 角色权限关联表
+-- ============================================================
+DROP TABLE IF EXISTS `role_permission`;
+CREATE TABLE `role_permission` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键',
+    `role_id` BIGINT NOT NULL COMMENT '角色ID',
+    `permission_id` BIGINT NOT NULL COMMENT '权限ID',
+    `granted_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '授权时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_role_permission` (`role_id`, `permission_id`),
+    KEY `idx_role_id` (`role_id`),
+    KEY `idx_permission_id` (`permission_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='角色权限关联表';
+
+-- 为SUPER_ADMIN分配所有权限
+INSERT INTO `role_permission` (`role_id`, `permission_id`) VALUES
+(1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8), (1, 9), (1, 10),
+(1, 11), (1, 12), (1, 13), (1, 14), (1, 15), (1, 16), (1, 17);
+
+-- 为ADMIN分配大部分权限
+INSERT INTO `role_permission` (`role_id`, `permission_id`) VALUES
+(2, 1), (2, 2), (2, 4), (2, 5), (2, 6), (2, 7), (2, 8), (2, 9), (2, 10),
+(2, 11), (2, 12), (2, 14), (2, 16), (2, 17);
+
+-- 为OPERATOR分配基础权限
+INSERT INTO `role_permission` (`role_id`, `permission_id`) VALUES
+(3, 1), (3, 5), (3, 6), (3, 8), (3, 10), (3, 11), (3, 12), (3, 14);
+
+-- 为VIEWER分配只读权限
+INSERT INTO `role_permission` (`role_id`, `permission_id`) VALUES
+(4, 1), (4, 5), (4, 8), (4, 11), (4, 14), (4, 17);
 
 -- ============================================================
 -- 知识库文档表

@@ -23,6 +23,8 @@ public class KnowledgeDocument {
 
     private String category;
 
+    private String content;
+
     private Integer wordCount;
 
     private Integer chunkCount;

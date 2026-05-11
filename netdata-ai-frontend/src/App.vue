@@ -63,7 +63,7 @@ import { ElConfigProvider, ElMessageBox } from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import {
   Monitor, ChatDotRound, Bell, Reading, Operation, Document,
-  UserFilled, Key, ArrowDown, SwitchButton, Management,
+  UserFilled, Key, ArrowDown, SwitchButton, Management, Setting,
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 
@@ -76,6 +76,7 @@ interface MenuItem {
   title: string
   icon: any
   permission?: string
+  requireSuperAdmin?: boolean
 }
 
 const menuItems: MenuItem[] = [
@@ -84,13 +85,18 @@ const menuItems: MenuItem[] = [
   { path: '/knowledge', title: '知识库', icon: markRaw(Reading) },
   { path: '/executions', title: '命令执行', icon: markRaw(Operation) },
   { path: '/approvals', title: '审批中心', icon: markRaw(Management) },
+  { path: '/admin', title: '超管控制台', icon: markRaw(Setting), requireSuperAdmin: true },
   { path: '/operation-logs', title: '操作审计', icon: markRaw(Document) },
   { path: '/roles', title: '角色权限', icon: markRaw(Key), permission: 'system:config' },
   { path: '/users', title: '用户管理', icon: markRaw(UserFilled), permission: 'user:read' },
 ]
 
 const visibleMenus = computed(() =>
-  menuItems.filter((m) => !m.permission || authStore.hasPermission(m.permission))
+  menuItems.filter((m) => {
+    if (m.requireSuperAdmin && !authStore.isSuperAdmin) return false
+    if (m.permission && !authStore.hasPermission(m.permission)) return false
+    return true
+  })
 )
 
 const isPublicRoute = computed(() => !!route.meta?.public)

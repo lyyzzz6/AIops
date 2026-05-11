@@ -85,11 +85,11 @@ public class ExecutionAuditService {
         audit.setUpdatedAt(LocalDateTime.now());
 
         // 低风险自动执行，中高风险需审批
-        if ("low".equals(riskLevel)) {
+        if ("LOW".equals(riskLevel)) {
             audit.setStatus("approved");
             audit.setApproverId(userId); // 自审批
             audit.setApprovedAt(LocalDateTime.now());
-        } else if ("critical".equals(riskLevel)) {
+        } else if ("CRITICAL".equals(riskLevel)) {
             audit.setStatus("rejected");
             log.warn("危险命令被自动拦截: command={}, user={}", command, SecurityUtils.getCurrentUsername());
         } else {
@@ -163,7 +163,7 @@ public class ExecutionAuditService {
             throw new BusinessException(ErrorCode.DATA_NOT_FOUND, "审计记录不存在");
         }
 
-        audit.setStatus(success ? "executed" : "failed");
+        audit.setStatus(success ? "completed" : "failed");
         audit.setExecutionResult(result);
         audit.setExecutedAt(LocalDateTime.now());
         audit.setUpdatedAt(LocalDateTime.now());
@@ -240,7 +240,7 @@ public class ExecutionAuditService {
         // critical级别检测
         for (Pattern pattern : CRITICAL_PATTERNS) {
             if (pattern.matcher(command).find()) {
-                result.put("riskLevel", "critical");
+                result.put("riskLevel", "CRITICAL");
                 result.put("riskScore", 100);
                 result.put("matchedPattern", pattern.pattern());
                 return result;
@@ -250,7 +250,7 @@ public class ExecutionAuditService {
         // high级别检测
         for (Pattern pattern : HIGH_PATTERNS) {
             if (pattern.matcher(command).find()) {
-                result.put("riskLevel", "high");
+                result.put("riskLevel", "HIGH");
                 result.put("riskScore", 75);
                 result.put("matchedPattern", pattern.pattern());
                 return result;
@@ -260,7 +260,7 @@ public class ExecutionAuditService {
         // medium级别检测
         for (Pattern pattern : MEDIUM_PATTERNS) {
             if (pattern.matcher(command).find()) {
-                result.put("riskLevel", "medium");
+                result.put("riskLevel", "MEDIUM");
                 result.put("riskScore", 50);
                 result.put("matchedPattern", pattern.pattern());
                 return result;
@@ -268,7 +268,7 @@ public class ExecutionAuditService {
         }
 
         // 默认低风险
-        result.put("riskLevel", "low");
+        result.put("riskLevel", "LOW");
         result.put("riskScore", 10);
         result.put("matchedPattern", "none");
         return result;

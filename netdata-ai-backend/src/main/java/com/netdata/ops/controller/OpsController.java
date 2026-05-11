@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.netdata.ops.core.agent.*;
 import com.netdata.ops.core.ai.LLMFallbackHandler;
+import com.netdata.ops.core.rag.HybridRetriever;
+import com.netdata.ops.core.rag.RAGService;
 import com.netdata.ops.dto.response.PageResult;
 import com.netdata.ops.dto.response.R;
 import com.netdata.ops.entity.ChatConversation;
@@ -50,6 +52,7 @@ public class OpsController {
     private final OrchestratorAgent orchestratorAgent;
     private final ChatHistoryService chatHistoryService;
     private final LLMFallbackHandler llmFallbackHandler;
+    private final RAGService ragService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ExecutorService sseExecutor = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "chat-stream-" + System.currentTimeMillis());
@@ -136,10 +139,26 @@ public class OpsController {
                     chatHistoryService.appendUserMessage(conversation.getId(), request.getQuery());
                 }
 
-                // 2) 构造 prompt（系统提示 + 用户查询，简单拼接以支持真流式）
-                String prompt = buildChatPrompt(request.getQuery());
+                // 2) RAG 检索 - 调用知识库获取相关知识片段
+                List<AgentResult.SourceCitation> sources = new ArrayList<>();
+                List<HybridRetriever.RetrievalResult> ragResults = ragService.retrieve(request.getQuery(), 5);
+                log.info("[流式问答] RAG检索到 {} 条相关知识片段", ragResults.size());
 
-                // 3) 真流式调用：每收到一个 delta 立即 SSE 推送
+                // 3) 构建来源引用列表
+                for (int i = 0; i < ragResults.size(); i++) {
+                    HybridRetriever.RetrievalResult r = ragResults.get(i);
+                    sources.add(AgentResult.SourceCitation.builder()
+                            .source(r.getSource())
+                            .title(r.getTitle())
+                            .score(r.getRrfScore())
+                            .snippet(r.getContent().substring(0, Math.min(150, r.getContent().length())))
+                            .build());
+                }
+
+                // 4) 构造带RAG上下文的prompt
+                String prompt = buildRAGChatPrompt(request.getQuery(), ragResults);
+
+                // 5) 真流式调用：每收到一个 delta 立即 SSE 推送
                 String fullText = llmFallbackHandler.streamSync(prompt, piece -> {
                     if (piece == null || piece.isEmpty()) return;
                     fullBuf.append(piece);
@@ -156,27 +175,27 @@ public class OpsController {
                 String answer = (fullText != null && !fullText.isEmpty()) ? fullText : fullBuf.toString();
                 long execMs = (System.nanoTime() - startNs) / 1_000_000L;
 
-                // 4) 从回答中规则抽取命令建议（简化策略，流式无法通过 Orchestrator）
+                // 6) 从回答中规则抽取命令建议
                 List<Map<String, Object>> suggestedCommands = extractSuggestedCommands(answer);
 
-                // 5) 落盘助手消息
+                // 7) 落盘助手消息
                 if (conversation != null) {
                     chatHistoryService.appendAssistantMessage(
                             conversation.getId(),
                             answer,
-                            java.util.Collections.emptyList(),
+                            sources,
                             suggestedCommands,
-                            "STREAM",
-                            "OrchestratorAgent(stream)",
+                            "KNOWLEDGE_QUERY",
+                            "QueryAgent(stream)",
                             execMs
                     );
                 }
 
-                // 6) 下发 end 事件
+                // 8) 下发 end 事件
                 Map<String, Object> endPayload = new HashMap<>();
                 endPayload.put("success", true);
-                endPayload.put("intent", "STREAM");
-                endPayload.put("sources", java.util.Collections.emptyList());
+                endPayload.put("intent", "KNOWLEDGE_QUERY");
+                endPayload.put("sources", sources);
                 endPayload.put("suggestedCommands", suggestedCommands);
                 endPayload.put("executionTimeMs", execMs);
                 endPayload.put("conversationId", conversation != null ? conversation.getId() : null);
@@ -203,12 +222,48 @@ public class OpsController {
         return emitter;
     }
 
-    /** 流式对话提示词拼接 */
+    /** 流式对话提示词拼接（不带RAG） */
     private String buildChatPrompt(String userQuery) {
         return "你是一位专业的运维助手，精通 Linux 系统、网络、数据库与 Netdata 监控。\n"
              + "请用中文回答用户问题，返回结构清晰、可操作的答案。\n"
              + "如需建议命令，请在 Markdown 代码块中使用 ```bash 包裹，便于系统提取。\n\n"
              + "用户问题: " + (userQuery == null ? "" : userQuery);
+    }
+
+    /** 构建带RAG上下文的流式对话提示词 */
+    private String buildRAGChatPrompt(String userQuery, List<HybridRetriever.RetrievalResult> ragResults) {
+        StringBuilder prompt = new StringBuilder();
+        
+        // 系统提示
+        prompt.append("你是 NetData 智能运维系统的知识问答助手。\n");
+        prompt.append("请基于以下参考资料回答用户的问题。\n\n");
+        prompt.append("要求：\n");
+        prompt.append("1. 仅基于提供的参考资料回答，不要编造信息\n");
+        prompt.append("2. 如果参考资料不足以回答问题，请诚实说明\n");
+        prompt.append("3. 在回答中标注引用来源（如 [1]、[2]）\n");
+        prompt.append("4. 使用清晰的结构化格式（Markdown）\n");
+        prompt.append("5. 对专业术语给出简要解释\n");
+        prompt.append("6. 如果多条参考资料有冲突，请指出差异并给出综合判断\n\n");
+        
+        // RAG检索结果
+        if (ragResults != null && !ragResults.isEmpty()) {
+            prompt.append("参考资料：\n");
+            for (int i = 0; i < ragResults.size(); i++) {
+                HybridRetriever.RetrievalResult result = ragResults.get(i);
+                prompt.append(String.format("### [%d] %s\n", i + 1, result.getTitle()));
+                prompt.append(String.format("来源: %s | 相关度: %.3f\n", result.getSource(), result.getRrfScore()));
+                prompt.append(result.getContent());
+                prompt.append("\n\n");
+            }
+        } else {
+            prompt.append("参考资料：无\n\n");
+        }
+        
+        // 用户问题
+        prompt.append("用户问题: ").append(userQuery != null ? userQuery : "").append("\n");
+        prompt.append("回答: ");
+        
+        return prompt.toString();
     }
 
     /** 从带 Markdown 标记的文本中抽取 bash 代码块作为建议命令 */

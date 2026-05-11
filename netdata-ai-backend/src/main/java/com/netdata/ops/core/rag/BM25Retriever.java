@@ -56,6 +56,12 @@ public class BM25Retriever {
     private final Map<String, Integer> docLengths = new HashMap<>();
     
     /**
+     * 文档完整信息
+     * key: docId, value: 文档信息
+     */
+    private final Map<String, DocumentInfo> docInfos = new HashMap<>();
+    
+    /**
      * 平均文档长度
      */
     private double avgDocLength = 0;
@@ -76,12 +82,38 @@ public class BM25Retriever {
     }
     
     /**
+     * 文档完整信息
+     */
+    @lombok.Data
+    @lombok.AllArgsConstructor
+    @lombok.Builder
+    private static class DocumentInfo {
+        private String content;
+        private String source;
+        private String title;
+        private Long chunkIndex;
+    }
+    
+    /**
      * 索引文档
      *
      * @param docId 文档 ID
      * @param content 文档内容
      */
     public void indexDocument(String docId, String content) {
+        indexDocument(docId, content, null, null, null);
+    }
+    
+    /**
+     * 索引文档（完整参数）
+     *
+     * @param docId 文档 ID
+     * @param content 文档内容
+     * @param source 文档来源
+     * @param title 文档标题
+     * @param chunkIndex 切片索引
+     */
+    public void indexDocument(String docId, String content, String source, String title, Long chunkIndex) {
         log.debug("索引文档: {}", docId);
         
         // 分词（简化版：按空格和标点分割）
@@ -90,6 +122,14 @@ public class BM25Retriever {
         // 更新文档长度
         docLengths.put(docId, tokens.size());
         totalDocs++;
+        
+        // 存储文档完整信息
+        docInfos.put(docId, DocumentInfo.builder()
+            .content(content)
+            .source(source)
+            .title(title)
+            .chunkIndex(chunkIndex)
+            .build());
         
         // 计算词频
         Map<String, Integer> termFreq = new HashMap<>();
@@ -173,7 +213,24 @@ public class BM25Retriever {
         return scores.entrySet().stream()
             .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
             .limit(k)
-            .map(e -> new BM25Result(e.getKey(), e.getValue()))
+            .map(e -> {
+                String docId = e.getKey();
+                DocumentInfo info = docInfos.get(docId);
+                if (info != null) {
+                    return BM25Result.builder()
+                        .docId(docId)
+                        .score(e.getValue())
+                        .content(info.getContent())
+                        .source(info.getSource())
+                        .title(info.getTitle())
+                        .chunkIndex(info.getChunkIndex())
+                        .build();
+                }
+                return BM25Result.builder()
+                    .docId(docId)
+                    .score(e.getValue())
+                    .build();
+            })
             .collect(Collectors.toList());
     }
     
@@ -249,8 +306,13 @@ public class BM25Retriever {
      */
     @lombok.Data
     @lombok.AllArgsConstructor
+    @lombok.Builder
     public static class BM25Result {
         private String docId;
         private double score;
+        private String content;
+        private String source;
+        private String title;
+        private Long chunkIndex;
     }
 }

@@ -101,12 +101,21 @@ mybatis-plus:
 # Milvus 向量数据库配置
 # ============================================================
 milvus:
-  host: ${MILVUS_HOST:localhost}
-  port: ${MILVUS_GRPC_PORT:19532}
+  host: ${MILVUS_HOST:-localhost}
+  port: ${MILVUS_GRPC_PORT:-19531}
   database: default
   collection-name: ops_knowledge_base
   # 向量维度：BGE-M3 固定 1024 维，创建后不可更改！
   vector-dimension: 1024
+
+# ============================================================
+# Embedding 服务配置
+# ============================================================
+embedding:
+  service-url: ${EMBEDDING_SERVICE_URL:-http://localhost:8002}
+  model: bge-m3
+  batch-size: 32
+  timeout: 30
   
 # ============================================================
 # RAG 配置
@@ -140,7 +149,7 @@ rag:
 # ============================================================
 llm:
   fallback:
-    base-url: ${OLLAMA_BASE_URL:http://localhost:11435}
+    base-url: ${OLLAMA_BASE_URL:http://localhost:11434/v1}
     model: ${OLLAMA_MODEL:qwen2.5:7b}
 
 # ============================================================

@@ -2,6 +2,7 @@ package com.netdata.ops.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.netdata.ops.core.rag.RAGService;
 import com.netdata.ops.dto.response.PageResult;
 import com.netdata.ops.entity.KnowledgeDocument;
 import com.netdata.ops.exception.BusinessException;
@@ -27,6 +28,7 @@ import java.util.stream.Collectors;
 public class KnowledgeService {
 
     private final KnowledgeDocumentMapper documentMapper;
+    private final RAGService ragService;
 
     /**
      * 分页查询文档列表
@@ -63,7 +65,7 @@ public class KnowledgeService {
     }
 
     /**
-     * 创建文档记录（上传后调用RAGService入库）
+     * 创建文档记录并向量化入库
      */
     @Transactional
     public KnowledgeDocument createDocument(String title, String source, String contentType,
@@ -73,6 +75,7 @@ public class KnowledgeService {
         doc.setSource(source);
         doc.setContentType(contentType != null ? contentType : "markdown");
         doc.setCategory(category);
+        doc.setContent(content);
         doc.setWordCount(content != null ? content.length() : 0);
         doc.setStatus(0); // 处理中
         doc.setCreatedBy(SecurityUtils.getCurrentUserId());
@@ -80,10 +83,18 @@ public class KnowledgeService {
         doc.setUpdatedAt(LocalDateTime.now());
         documentMapper.insert(doc);
 
-        // TODO: 异步调用RAGService.ingestDocument()进行向量化
-        // 此处模拟完成状态
-        doc.setStatus(1);
-        doc.setChunkCount(doc.getWordCount() / 500 + 1);
+        // 调用RAGService进行向量化并写入Milvus
+        try {
+            int chunkCount = ragService.ingestDocument(content, title, source);
+            doc.setChunkCount(chunkCount);
+            doc.setStatus(1); // 完成
+            log.info("文档向量化完成: title={}, chunks={}", title, chunkCount);
+        } catch (Exception e) {
+            log.error("文档向量化失败: title={}, error={}", title, e.getMessage());
+            doc.setStatus(2); // 失败
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "文档向量化失败: " + e.getMessage());
+        }
+        
         doc.setUpdatedAt(LocalDateTime.now());
         documentMapper.updateById(doc);
 
@@ -92,7 +103,7 @@ public class KnowledgeService {
     }
 
     /**
-     * 删除文档
+     * 删除文档（同时清理Milvus向量）
      */
     @Transactional
     public void deleteDocument(Long id) {
@@ -101,7 +112,15 @@ public class KnowledgeService {
             throw new BusinessException(ErrorCode.DATA_NOT_FOUND, "文档不存在");
         }
 
-        // TODO: 调用RAGService.deleteDocument()清理Milvus向量
+        // 调用RAGService清理Milvus向量
+        try {
+            ragService.deleteDocument(doc.getSource());
+            log.info("Milvus向量清理完成: source={}", doc.getSource());
+        } catch (Exception e) {
+            log.warn("Milvus向量清理失败: source={}, error={}", doc.getSource(), e.getMessage());
+            // 继续删除数据库记录，不中断流程
+        }
+        
         documentMapper.deleteById(id);
         log.info("知识库文档删除: id={} by {}", id, SecurityUtils.getCurrentUsername());
     }

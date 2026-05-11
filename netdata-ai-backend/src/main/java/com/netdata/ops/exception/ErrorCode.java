@@ -42,7 +42,13 @@ public enum ErrorCode {
     APPROVAL_EXPIRED(50004, "审批请求已过期"),
 
     // 限流 6xxxx
-    RATE_LIMIT_EXCEEDED(60001, "请求过于频繁，请稍后再试");
+    RATE_LIMIT_EXCEEDED(60001, "请求过于频繁，请稍后再试"),
+
+    // 管理员访问 7xxxx
+    ADMIN_ACCESS_DENIED(70001, "非超管用户无权访问管理端"),
+    FIRST_LOGIN_PASSWORD_CHANGE_REQUIRED(70002, "首次登录必须修改密码"),
+    PASSWORD_COMPLEXITY_INVALID(70003, "密码复杂度不足，需包含大小写字母、数字和特殊字符，长度8-32位"),
+    SESSION_TIMEOUT(70004, "会话已超时，请重新登录");
 
     private final int code;
     private final String message;

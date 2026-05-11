@@ -1,5 +1,6 @@
 package com.netdata.ops.controller;
 
+import com.netdata.ops.annotation.AdminOnly;
 import com.netdata.ops.annotation.RequirePermission;
 import com.netdata.ops.dto.response.PageResult;
 import com.netdata.ops.dto.response.R;
@@ -14,13 +15,11 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDateTime;
 import java.util.Map;
 
-/**
- * 操作日志控制器
- */
 @Tag(name = "操作日志", description = "操作审计日志查询与统计")
 @RestController
 @RequestMapping("/api/v1/operation-logs")
 @RequiredArgsConstructor
+@AdminOnly
 public class OperationLogController {
 
     private final OperationLogService operationLogService;

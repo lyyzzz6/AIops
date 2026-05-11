@@ -1,5 +1,6 @@
 package com.netdata.ops.controller;
 
+import com.netdata.ops.annotation.AdminOnly;
 import com.netdata.ops.annotation.RequirePermission;
 import com.netdata.ops.dto.request.UserCreateRequest;
 import com.netdata.ops.dto.request.UserUpdateRequest;
@@ -17,13 +18,11 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
-/**
- * 用户管理控制器
- */
 @Tag(name = "用户管理", description = "用户CRUD、角色分配、密码管理")
 @RestController
 @RequestMapping("/api/v1/users")
 @RequiredArgsConstructor
+@AdminOnly
 public class UserController {
 
     private final UserService userService;
@@ -89,6 +88,14 @@ public class UserController {
     public R<Void> changeMyPassword(@RequestBody Map<String, String> body) {
         Long userId = SecurityUtils.getCurrentUserId();
         userService.changePassword(userId, body.get("oldPassword"), body.get("newPassword"));
+        return R.ok();
+    }
+
+    @Operation(summary = "启用/禁用用户")
+    @PutMapping("/{id}/status")
+    @RequirePermission("user:write")
+    public R<Void> updateUserStatus(@PathVariable Long id, @RequestBody Map<String, Integer> body) {
+        userService.updateUserStatus(id, body.get("status"));
         return R.ok();
     }
 }

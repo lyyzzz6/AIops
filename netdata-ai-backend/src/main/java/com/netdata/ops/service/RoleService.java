@@ -103,17 +103,14 @@ public class RoleService {
      */
     @Transactional
     public void assignPermissions(Long roleId, List<Long> permissionIds) {
-        // 验证角色存在
         if (roleMapper.selectById(roleId) == null) {
             throw new BusinessException(ErrorCode.ROLE_NOT_FOUND);
         }
 
-        // 清除旧权限
         LambdaQueryWrapper<RolePermission> deleteWrapper = new LambdaQueryWrapper<>();
         deleteWrapper.eq(RolePermission::getRoleId, roleId);
         rolePermissionMapper.delete(deleteWrapper);
 
-        // 分配新权限
         for (Long permId : permissionIds) {
             RolePermission rp = new RolePermission();
             rp.setRoleId(roleId);
@@ -124,6 +121,25 @@ public class RoleService {
 
         log.info("角色权限分配成功: roleId={}, permissions={} by {}",
                 roleId, permissionIds.size(), SecurityUtils.getCurrentUsername());
+    }
+
+    @Transactional
+    public void deleteRole(Long id) {
+        SysRole role = roleMapper.selectById(id);
+        if (role == null) {
+            throw new BusinessException(ErrorCode.ROLE_NOT_FOUND);
+        }
+
+        if ("SUPER_ADMIN".equals(role.getRoleCode())) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "不能删除超级管理员角色");
+        }
+
+        LambdaQueryWrapper<RolePermission> rpWrapper = new LambdaQueryWrapper<>();
+        rpWrapper.eq(RolePermission::getRoleId, id);
+        rolePermissionMapper.delete(rpWrapper);
+
+        roleMapper.deleteById(id);
+        log.info("角色删除成功: id={} by {}", id, SecurityUtils.getCurrentUsername());
     }
 
     /**

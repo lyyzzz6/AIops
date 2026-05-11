@@ -171,10 +171,20 @@ public class HybridRetriever {
             double rrfScore = 1.0 / (rrfK + rank);
             rrfScores.merge(docId, rrfScore, Double::sum);
             
-            // 更新 BM25 分数
+            // 更新或创建文档信息
             RetrievalResult existing = docMap.get(docId);
             if (existing != null) {
                 existing.setBm25Score(result.getScore());
+            } else {
+                // 如果文档只在BM25结果中出现，也需要添加到docMap
+                docMap.put(docId, RetrievalResult.builder()
+                    .id(docId)
+                    .content(result.getContent())
+                    .source(result.getSource())
+                    .title(result.getTitle())
+                    .chunkIndex(result.getChunkIndex())
+                    .bm25Score(result.getScore())
+                    .build());
             }
         }
         

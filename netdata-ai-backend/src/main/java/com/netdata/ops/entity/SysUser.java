@@ -53,4 +53,11 @@ public class SysUser {
 
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
+
+    private LocalDateTime passwordChangedAt;
+
+    private LocalDateTime passwordExpireAt;
+
+    @TableField("is_first_login")
+    private Integer isFirstLogin;
 }

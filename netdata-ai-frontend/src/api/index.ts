@@ -10,6 +10,7 @@ import type {
   OperationLogDTO,
   PermissionRequestDTO,
   ExecutionAuditDTO,
+  Document,
 } from '@/types'
 import { ElMessage } from 'element-plus'
 
@@ -258,15 +259,19 @@ export const chatApi = {
  * 知识库 API
  */
 export const knowledgeApi = {
-  async getDocuments() {
-    const res = await apiClient.get('/knowledge/documents')
-    return unwrap(res)
+  async getDocuments(params: { current?: number; size?: number; keyword?: string } = {}): Promise<PageResult<Document>> {
+    const res = await apiClient.get('/knowledge/documents', { params })
+    return unwrap<PageResult<Document>>(res)
   },
-  async uploadDocument(data: { title: string; source: string; content: string }) {
-    const res = await apiClient.post('/knowledge/upload', data)
-    return unwrap(res)
+  async getDocumentById(id: number | string): Promise<Document> {
+    const res = await apiClient.get(`/knowledge/documents/${id}`)
+    return unwrap<Document>(res)
   },
-  async deleteDocument(id: string) {
+  async createDocument(data: { title: string; source: string; contentType?: string; category?: string; content: string }): Promise<Document> {
+    const res = await apiClient.post('/knowledge/documents', data)
+    return unwrap<Document>(res)
+  },
+  async deleteDocument(id: string): Promise<void> {
     await apiClient.delete(`/knowledge/documents/${id}`)
   },
 }

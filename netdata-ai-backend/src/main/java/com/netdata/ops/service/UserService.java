@@ -196,6 +196,8 @@ public class UserService {
             throw new BusinessException(ErrorCode.USER_NOT_FOUND);
         }
 
+        com.netdata.ops.util.PasswordValidator.validate(newPassword);
+
         user.setPassword(passwordEncoder.encode(newPassword));
         user.setLoginFailCount(0);
         user.setLockedUntil(null);
@@ -204,9 +206,6 @@ public class UserService {
         log.info("密码重置成功: userId={} by {}", userId, SecurityUtils.getCurrentUsername());
     }
 
-    /**
-     * 修改自己的密码
-     */
     @Transactional
     public void changePassword(Long userId, String oldPassword, String newPassword) {
         SysUser user = userMapper.selectById(userId);
@@ -218,9 +217,30 @@ public class UserService {
             throw new BusinessException(ErrorCode.OLD_PASSWORD_WRONG);
         }
 
+        com.netdata.ops.util.PasswordValidator.validate(newPassword);
+
         user.setPassword(passwordEncoder.encode(newPassword));
+        user.setPasswordChangedAt(LocalDateTime.now());
+        user.setIsFirstLogin(0);
         user.setUpdatedAt(LocalDateTime.now());
         userMapper.updateById(user);
+    }
+
+    @Transactional
+    public void updateUserStatus(Long userId, Integer status) {
+        SysUser user = userMapper.selectById(userId);
+        if (user == null || user.getDeleted() == 1) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND);
+        }
+
+        if (userId.equals(SecurityUtils.getCurrentUserId())) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "不能修改自己的账户状态");
+        }
+
+        user.setStatus(status);
+        user.setUpdatedAt(LocalDateTime.now());
+        userMapper.updateById(user);
+        log.info("用户状态更新: userId={}, status={} by {}", userId, status, SecurityUtils.getCurrentUsername());
     }
 
     /**

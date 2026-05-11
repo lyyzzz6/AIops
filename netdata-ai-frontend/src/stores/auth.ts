@@ -33,10 +33,10 @@ export const useAuthStore = defineStore('auth', () => {
 
   const hasRole = (role: string) => roles.value.includes(role)
   const hasPermission = (permission: string) => {
-    // SUPER_ADMIN bypass
     if (roles.value.includes('SUPER_ADMIN')) return true
     return permissions.value.includes(permission)
   }
+  const isSuperAdmin = computed(() => roles.value.includes('SUPER_ADMIN'))
 
   // Actions
   async function login(username: string, password: string) {
@@ -109,6 +109,7 @@ export const useAuthStore = defineStore('auth', () => {
     permissions,
     hasRole,
     hasPermission,
+    isSuperAdmin,
     login,
     fetchUserInfo,
     refreshAccessToken,

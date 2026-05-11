@@ -290,15 +290,18 @@ export interface PageResult<T> {
 
 /** 文档 */
 export interface Document {
-  id: string
+  id: number | string
   title: string
   source: string
   contentType: string
-  category: string
+  category?: string
+  content?: string
   wordCount: number
   chunkCount: number
-  status: 'processing' | 'completed' | 'failed'
-  createdAt: Date
+  status: number
+  createdBy?: number
+  createdAt: string
+  updatedAt?: string
 }
 
 /** 文档上传请求 */

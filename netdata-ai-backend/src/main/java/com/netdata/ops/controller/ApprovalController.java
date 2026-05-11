@@ -1,5 +1,6 @@
 package com.netdata.ops.controller;
 
+import com.netdata.ops.annotation.AdminOnly;
 import com.netdata.ops.annotation.RequirePermission;
 import com.netdata.ops.dto.response.PageResult;
 import com.netdata.ops.dto.response.R;
@@ -12,13 +13,11 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
-/**
- * 审批工作流控制器
- */
 @Tag(name = "审批工作流", description = "权限申请、审批、转交、查询")
 @RestController
 @RequestMapping("/api/v1/approvals")
 @RequiredArgsConstructor
+@AdminOnly
 public class ApprovalController {
 
     private final ApprovalService approvalService;

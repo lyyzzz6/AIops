@@ -63,6 +63,12 @@ const router = createRouter({
       meta: { title: '用户管理', permission: 'user:read' },
     },
     {
+      path: '/admin',
+      name: 'admin',
+      component: () => import('@/views/AdminDashboardView.vue'),
+      meta: { title: '超管控制台', requireSuperAdmin: true },
+    },
+    {
       path: '/403',
       name: 'forbidden',
       component: () => import('@/views/ChatView.vue'),
@@ -92,7 +98,6 @@ router.beforeEach(async (to, _from, next) => {
   const required = to.meta.permission as string | undefined
   if (required) {
     const authStore = useAuthStore()
-    // 若尚未加载用户信息，先拉取
     if (!authStore.user) {
       try {
         await authStore.fetchUserInfo()
@@ -101,6 +106,22 @@ router.beforeEach(async (to, _from, next) => {
       }
     }
     if (!authStore.hasPermission(required)) {
+      next({ path: '/chat' })
+      return
+    }
+  }
+
+  // 超管专属路由检查
+  if (to.meta.requireSuperAdmin) {
+    const authStore = useAuthStore()
+    if (!authStore.user) {
+      try {
+        await authStore.fetchUserInfo()
+      } catch {
+        /* ignore */
+      }
+    }
+    if (!authStore.isSuperAdmin) {
       next({ path: '/chat' })
       return
     }

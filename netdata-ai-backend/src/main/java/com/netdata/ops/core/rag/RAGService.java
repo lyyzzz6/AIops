@@ -79,12 +79,12 @@ public class RAGService {
         log.debug("存储到 Milvus: {} 条", insertCnt);
         
         // 5. 更新 BM25 索引（使用切片索引作为文档ID）
-        Map<String, String> bm25Docs = new HashMap<>();
         for (int i = 0; i < chunks.size(); i++) {
+            DocumentChunk chunk = chunks.get(i);
             String docId = source + "#" + i;
-            bm25Docs.put(docId, chunks.get(i).getContent());
+            Long chunkIndex = chunk.getChunkIndex() != null ? chunk.getChunkIndex().longValue() : null;
+            bm25Retriever.indexDocument(docId, chunk.getContent(), chunk.getSource(), chunk.getTitle(), chunkIndex);
         }
-        bm25Retriever.indexDocuments(bm25Docs);
         
         log.info("文档入库完成: {} -> {} 个切片", title, chunks.size());
         return chunks.size();

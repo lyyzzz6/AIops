@@ -236,6 +236,7 @@ public class MilvusVectorStore {
             row.addProperty("source", chunk.getSource());
             row.addProperty("title", chunk.getTitle());
             row.addProperty("chunk_index", chunk.getChunkIndex());
+            row.addProperty("created_at", System.currentTimeMillis());
             rows.add(row);
         }
         

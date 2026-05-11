@@ -55,34 +55,32 @@ public class AuthService {
             throw new BusinessException(ErrorCode.LOGIN_FAILED);
         }
 
-        // 检查账户状态
         if (user.getStatus() == 0) {
             throw new BusinessException(ErrorCode.ACCOUNT_DISABLED);
         }
 
-        // 检查账户锁定
         if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(LocalDateTime.now())) {
             throw new BusinessException(ErrorCode.ACCOUNT_LOCKED);
         }
 
-        // 验证密码
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             handleLoginFailure(user);
             throw new BusinessException(ErrorCode.LOGIN_FAILED);
         }
 
-        // 登录成功 - 重置失败计数
+        if (user.getIsFirstLogin() == 1) {
+            throw new BusinessException(ErrorCode.FIRST_LOGIN_PASSWORD_CHANGE_REQUIRED);
+        }
+
         user.setLoginFailCount(0);
         user.setLockedUntil(null);
         user.setLastLoginAt(LocalDateTime.now());
         user.setLastLoginIp(IpUtils.getClientIp(httpRequest));
         userMapper.updateById(user);
 
-        // 获取角色和权限
         List<String> roles = userMapper.selectRoleCodesByUserId(user.getId());
         List<String> permissions = userMapper.selectPermissionsByUserId(user.getId());
 
-        // 生成Token
         String accessToken = jwtTokenProvider.generateAccessToken(user.getId(), user.getUsername(), roles);
         String refreshToken = jwtTokenProvider.generateRefreshToken(user.getId());
 
@@ -101,6 +99,7 @@ public class AuthService {
                         .avatar(user.getAvatar())
                         .roles(roles)
                         .permissions(permissions)
+                        .isFirstLogin(user.getIsFirstLogin())
                         .build())
                 .build();
     }
