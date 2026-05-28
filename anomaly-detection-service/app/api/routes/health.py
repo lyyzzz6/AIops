@@ -37,18 +37,11 @@ async def health_check() -> HealthResponse:
     - 负载均衡器健康检查
     - 监控系统状态上报
     """
-    # 获取运行时间
-    startup_time = getattr(router.app.state, "startup_time", time.time())
-    uptime = time.time() - startup_time
-
-    # 获取已加载的检测器
-    # TODO: 从检测器管理器获取
-
     return HealthResponse(
         status="healthy",
         version=settings.app_version,
         detectors_loaded=["isolation_forest", "lof", "knn", "half_space_trees"],
-        uptime_seconds=uptime,
+        uptime_seconds=0,
     )
 
 

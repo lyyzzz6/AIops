@@ -16,7 +16,7 @@ import time
 from datetime import datetime
 
 import numpy as np
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from loguru import logger
 
 from app.config import settings
@@ -61,7 +61,7 @@ def get_netdata_client() -> NetDataClient:
 )
 async def batch_detect(
     request: BatchDetectionRequest,
-    service: DetectionService = get_detection_service,
+    service: DetectionService = Depends(get_detection_service),
 ) -> BatchDetectionResponse:
     """
     批量异常检测接口
@@ -164,7 +164,7 @@ async def batch_detect(
 )
 async def stream_detect(
     request: StreamDetectionRequest,
-    service: DetectionService = get_detection_service,
+    service: DetectionService = Depends(get_detection_service),
 ) -> StreamDetectionResponse:
     """
     流式异常检测接口
@@ -230,7 +230,7 @@ async def stream_detect(
 )
 async def train_detector(
     request: TrainDetectorRequest,
-    service: DetectionService = get_detection_service,
+    service: DetectionService = Depends(get_detection_service),
 ) -> TrainDetectorResponse:
     """
     训练检测器接口
@@ -290,8 +290,8 @@ async def train_detector(
 )
 async def fetch_and_detect(
     request: NetDataFetchRequest,
-    service: DetectionService = get_detection_service,
-    netdata: NetDataClient = get_netdata_client,
+    service: DetectionService = Depends(get_detection_service),
+    netdata: NetDataClient = Depends(get_netdata_client),
 ) -> BatchDetectionResponse:
     """
     从 NetData 获取数据并检测

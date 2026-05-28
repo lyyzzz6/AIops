@@ -25,8 +25,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * ============================================================
@@ -117,9 +119,11 @@ public class OpsController {
     /**
      * 智能问答（流式输出，SSE）
      * 事件约定：
+     *   event: thinking data: {"content": "..."}    — 模型思考过程
      *   event: chunk   data: {"delta": "..."}        — 逐段下发的文本
      *   event: end     data: {"sources":..., "suggestedCommands":..., "conversationId":..., "intent":..., "executionTimeMs":...}
      *   event: error   data: {"message":"..."}
+     *   event: ping    data: (empty)                 — 心跳保活
      */
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter chatStream(@RequestBody ChatRequest request) {
@@ -130,7 +134,23 @@ public class OpsController {
 
         sseExecutor.submit(() -> {
             long startNs = System.nanoTime();
-            StringBuilder fullBuf = new StringBuilder();
+            AtomicBoolean running = new AtomicBoolean(true);
+            
+            // 启动心跳线程，防止连接超时（每10秒发送一次ping）
+            Thread heartbeatThread = new Thread(() -> {
+                while (running.get()) {
+                    try {
+                        emitter.send(SseEmitter.event().name("ping"));
+                        Thread.sleep(10000);
+                    } catch (Exception e) {
+                        log.debug("心跳线程退出: {}", e.getMessage());
+                        break;
+                    }
+                }
+            }, "sse-heartbeat");
+            heartbeatThread.setDaemon(true);
+            heartbeatThread.start();
+
             try {
                 // 1) 会话落盘 + 用户消息写入
                 ChatConversation conversation = chatHistoryService.getOrCreateConversation(
@@ -139,66 +159,97 @@ public class OpsController {
                     chatHistoryService.appendUserMessage(conversation.getId(), request.getQuery());
                 }
 
-                // 2) RAG 检索 - 调用知识库获取相关知识片段
-                List<AgentResult.SourceCitation> sources = new ArrayList<>();
-                List<HybridRetriever.RetrievalResult> ragResults = ragService.retrieve(request.getQuery(), 5);
-                log.info("[流式问答] RAG检索到 {} 条相关知识片段", ragResults.size());
+                // 2) 构建 AgentContext
+                String userIdStr = currentUserId != null ? String.valueOf(currentUserId) : request.getUserId();
+                AgentContext context = AgentContext.builder()
+                        .sessionId(request.getSessionId())
+                        .userId(userIdStr)
+                        .query(request.getQuery())
+                        .build();
 
-                // 3) 构建来源引用列表
-                for (int i = 0; i < ragResults.size(); i++) {
-                    HybridRetriever.RetrievalResult r = ragResults.get(i);
-                    sources.add(AgentResult.SourceCitation.builder()
-                            .source(r.getSource())
-                            .title(r.getTitle())
-                            .score(r.getRrfScore())
-                            .snippet(r.getContent().substring(0, Math.min(150, r.getContent().length())))
-                            .build());
-                }
+                // 3) 发送思考过程
+                String thinking = "正在分析您的问题...\n\n已启动 OrchestratorAgent 进行意图识别和任务路由。";
+                Map<String, Object> thinkingPayload = new HashMap<>();
+                thinkingPayload.put("content", thinking);
+                emitter.send(SseEmitter.event().name("thinking")
+                        .data(toJson(thinkingPayload), MediaType.APPLICATION_JSON));
 
-                // 4) 构造带RAG上下文的prompt
-                String prompt = buildRAGChatPrompt(request.getQuery(), ragResults);
-
-                // 5) 真流式调用：每收到一个 delta 立即 SSE 推送
-                String fullText = llmFallbackHandler.streamSync(prompt, piece -> {
-                    if (piece == null || piece.isEmpty()) return;
-                    fullBuf.append(piece);
-                    Map<String, Object> payload = new HashMap<>();
-                    payload.put("delta", piece);
-                    try {
-                        emitter.send(SseEmitter.event().name("chunk")
-                                .data(toJson(payload), MediaType.APPLICATION_JSON));
-                    } catch (IOException e) {
-                        throw new RuntimeException("SSE 推送中断", e);
-                    }
-                });
-
-                String answer = (fullText != null && !fullText.isEmpty()) ? fullText : fullBuf.toString();
+                // 4) 调用 OrchestratorAgent 进行意图分类和执行
+                AgentResult result = orchestratorAgent.execute(context);
                 long execMs = (System.nanoTime() - startNs) / 1_000_000L;
 
-                // 6) 从回答中规则抽取命令建议
-                List<Map<String, Object>> suggestedCommands = extractSuggestedCommands(answer);
+                // 5) 将 AgentResult 转换为流式输出
+                if (result.getResponse() != null && !result.getResponse().isEmpty()) {
+                    String response = result.getResponse();
+                    int chunkSize = 10;
+                    long startTime = System.currentTimeMillis();
+                    
+                    for (int i = 0; i < response.length(); i += chunkSize) {
+                        int end = Math.min(i + chunkSize, response.length());
+                        String chunk = response.substring(i, end);
+                        Map<String, Object> payload = new HashMap<>();
+                        payload.put("delta", chunk);
+                        try {
+                            emitter.send(SseEmitter.event().name("chunk")
+                                    .data(toJson(payload), MediaType.APPLICATION_JSON));
+                            
+                            long elapsed = System.currentTimeMillis() - startTime;
+                            long remaining = response.length() - i;
+                            if (remaining > 0 && elapsed < 2000) {
+                                long delay = Math.max(5, Math.min(30, (2000 - elapsed) / (remaining / chunkSize + 1)));
+                                Thread.sleep(delay);
+                            }
+                        } catch (IOException e) {
+                            throw new RuntimeException("SSE 推送中断", e);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                }
+
+                // 6) 准备 end 事件数据
+                String intentStr = result.getIntentType() != null ? result.getIntentType().name() : "UNKNOWN";
+                List<Map<String, Object>> suggestedCommands = convertCommandSuggestions(result.getSuggestedCommands());
 
                 // 7) 落盘助手消息
                 if (conversation != null) {
                     chatHistoryService.appendAssistantMessage(
                             conversation.getId(),
-                            answer,
-                            sources,
+                            result.getResponse(),
+                            result.getSources(),
                             suggestedCommands,
-                            "KNOWLEDGE_QUERY",
-                            "QueryAgent(stream)",
-                            execMs
-                    );
+                            intentStr,
+                            result.getAgentName(),
+                            execMs);
                 }
 
-                // 8) 下发 end 事件
+                // 8) 下发 end 事件（优化：工具调用历史太大，改为发送摘要）
                 Map<String, Object> endPayload = new HashMap<>();
-                endPayload.put("success", true);
-                endPayload.put("intent", "KNOWLEDGE_QUERY");
-                endPayload.put("sources", sources);
+                endPayload.put("success", result.isSuccess());
+                endPayload.put("intent", intentStr);
+                endPayload.put("sources", result.getSources() != null ? result.getSources() : new ArrayList<>());
                 endPayload.put("suggestedCommands", suggestedCommands);
                 endPayload.put("executionTimeMs", execMs);
                 endPayload.put("conversationId", conversation != null ? conversation.getId() : null);
+                if (result.getDiagnosisReport() != null) {
+                    endPayload.put("diagnosisReport", result.getDiagnosisReport());
+                }
+                // 优化：工具调用历史太大（包含大量监控数据），改为发送摘要
+                if (result.getToolCallHistory() != null && !result.getToolCallHistory().isEmpty()) {
+                    Map<String, Object> toolSummary = new HashMap<>();
+                    toolSummary.put("totalCalls", result.getToolCallHistory().size());
+                    toolSummary.put("toolNames", result.getToolCallHistory().stream()
+                            .map(call -> {
+                                Map<String, Object> summary = new HashMap<>();
+                                summary.put("toolName", call.getToolName());
+                                summary.put("success", call.isSuccess());
+                                summary.put("durationMs", call.getDurationMs());
+                                // 只保留工具名称、成功状态和耗时，不发送完整结果
+                                return summary;
+                            })
+                            .collect(Collectors.toList()));
+                    endPayload.put("toolCallSummary", toolSummary);
+                }
                 emitter.send(SseEmitter.event().name("end")
                         .data(toJson(endPayload), MediaType.APPLICATION_JSON));
                 emitter.complete();
@@ -214,12 +265,33 @@ public class OpsController {
                             .data(toJson(err), MediaType.APPLICATION_JSON));
                 } catch (IOException ignored) { /* 连接已断 */ }
                 emitter.completeWithError(e);
+            } finally {
+                // 停止心跳线程
+                running.set(false);
+                heartbeatThread.interrupt();
             }
         });
 
         emitter.onTimeout(emitter::complete);
         emitter.onError(err -> log.warn("SSE error: {}", err.getMessage()));
         return emitter;
+    }
+
+    /**
+     * 转换命令建议列表格式
+     */
+    private List<Map<String, Object>> convertCommandSuggestions(List<AgentResult.CommandSuggestion> suggestions) {
+        if (suggestions == null || suggestions.isEmpty()) {
+            return new ArrayList<>();
+        }
+        return suggestions.stream().map(s -> {
+            Map<String, Object> map = new HashMap<>();
+            map.put("command", s.getCommand());
+            map.put("description", s.getDescription());
+            map.put("riskLevel", s.getRiskLevel());
+            map.put("requiresApproval", s.isRequiresApproval());
+            return map;
+        }).collect(java.util.stream.Collectors.toList());
     }
 
     /** 流式对话提示词拼接（不带RAG） */
@@ -234,7 +306,6 @@ public class OpsController {
     private String buildRAGChatPrompt(String userQuery, List<HybridRetriever.RetrievalResult> ragResults) {
         StringBuilder prompt = new StringBuilder();
         
-        // 系统提示
         prompt.append("你是 NetData 智能运维系统的知识问答助手。\n");
         prompt.append("请基于以下参考资料回答用户的问题。\n\n");
         prompt.append("要求：\n");
@@ -243,9 +314,9 @@ public class OpsController {
         prompt.append("3. 在回答中标注引用来源（如 [1]、[2]）\n");
         prompt.append("4. 使用清晰的结构化格式（Markdown）\n");
         prompt.append("5. 对专业术语给出简要解释\n");
-        prompt.append("6. 如果多条参考资料有冲突，请指出差异并给出综合判断\n\n");
+        prompt.append("6. 如果多条参考资料有冲突，请指出差异并给出综合判断\n");
+        prompt.append("7. 如果用户询问如何操作或执行命令，必须在回答最后用 ```bash 代码块给出具体的可执行命令\n\n");
         
-        // RAG检索结果
         if (ragResults != null && !ragResults.isEmpty()) {
             prompt.append("参考资料：\n");
             for (int i = 0; i < ragResults.size(); i++) {
@@ -259,9 +330,8 @@ public class OpsController {
             prompt.append("参考资料：无\n\n");
         }
         
-        // 用户问题
         prompt.append("用户问题: ").append(userQuery != null ? userQuery : "").append("\n");
-        prompt.append("回答: ");
+        prompt.append("回答：\n");
         
         return prompt.toString();
     }
@@ -279,6 +349,7 @@ public class OpsController {
             for (String line : block.split("\\r?\\n")) {
                 String cmd = line.trim();
                 if (cmd.isEmpty() || cmd.startsWith("#")) continue;
+                if (!isLikelyCommand(cmd)) continue;
                 Map<String, Object> item = new HashMap<>();
                 item.put("command", cmd);
                 item.put("description", "从 AI 回答中提取的建议命令");
@@ -291,6 +362,25 @@ public class OpsController {
             }
         }
         return list;
+    }
+
+    private boolean isLikelyCommand(String text) {
+        if (text == null || text.isEmpty()) return false;
+        if (text.matches("^[\\u4e00-\\u9fa5\\s.,;:!?。，；：！？]+$")) return false;
+        String lower = text.toLowerCase();
+        String[] prefixes = {"top", "ps", "ls", "cd ", "cat ", "grep ", "echo ", "curl ", "wget ", "df ", "du ", "free",
+                "uptime", "netstat", "ss ", "iptables", "systemctl", "service ", "docker ", "kubectl ", "ssh ",
+                "scp ", "rsync ", "tail ", "head ", "awk ", "sed ", "sort ", "uniq ", "find ", "xargs ",
+                "nohup ", "kill ", "pkill ", "htop", "vmstat", "iostat", "mpstat", "pidstat", "sar ",
+                "ping ", "traceroute", "nslookup", "dig ", "firewall-cmd", "chmod", "chown", "chgrp",
+                "mkdir", "rmdir", "touch ", "mv ", "cp ", "rm ", "tar ", "zip ", "unzip ", "gzip ",
+                "bzip2", "xz ", "dd ", "less ", "more ", "vi ", "vim ", "nano ", "python", "python3",
+                "node ", "ls -", "ps -", "netstat -", "ss -", "free -", "df -", "du -", "uptime",
+                "cd /", "cd ~", "./", "bash ", "sh ", "source "};
+        for (String prefix : prefixes) {
+            if (lower.startsWith(prefix)) return true;
+        }
+        return false;
     }
 
     /** 简化的风险分级（和后端审计服务关键词保持一致） */
@@ -306,6 +396,33 @@ public class OpsController {
             return "MEDIUM";
         }
         return "LOW";
+    }
+
+    /**
+     * 生成模型思考过程描述
+     * 
+     * @param userQuery 用户问题
+     * @param ragResults RAG检索结果
+     * @return 思考过程文本
+     */
+    private String generateThinking(String userQuery, List<HybridRetriever.RetrievalResult> ragResults) {
+        StringBuilder thinking = new StringBuilder();
+        
+        thinking.append("用户问了：\"").append(userQuery).append("\"\n\n");
+        
+        if (ragResults != null && !ragResults.isEmpty()) {
+            thinking.append("我在知识库中检索到 ").append(ragResults.size()).append(" 条相关知识：\n");
+            for (int i = 0; i < ragResults.size(); i++) {
+                HybridRetriever.RetrievalResult r = ragResults.get(i);
+                thinking.append(String.format("  [%d] 《%s》- 相关度: %.2f%%\n", 
+                        i + 1, r.getTitle(), r.getRrfScore() * 100));
+            }
+            thinking.append("\n我将基于这些参考资料来综合回答用户的问题。");
+        } else {
+            thinking.append("知识库中未检索到相关知识，我将基于自身知识进行回答。");
+        }
+        
+        return thinking.toString();
     }
 
     private String toJson(Object obj) {

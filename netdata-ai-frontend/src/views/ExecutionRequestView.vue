@@ -252,8 +252,8 @@ async function handleExecute(row: ExecutionAuditDTO) {
   try {
     await ElMessageBox.confirm(`确认执行命令？\n${row.command}`, '执行确认', { type: 'warning' })
     executingId.value = row.id
-    // 前端暂不直连执行通道，此处仅记录执行结果；实际执行由后端执行器回填
-    await executionApi.recordResult(row.id, '已触发执行（等待结果回填）', true)
+    // 调用审批接口，后端会自动执行命令并回填结果
+    await executionApi.approve(row.id)
     ElMessage.success('已触发执行')
     loadMyExecutions()
   } catch { /* cancelled */ } finally {

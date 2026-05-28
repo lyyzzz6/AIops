@@ -52,6 +52,8 @@ export interface Message {
   loading?: boolean
   /** 错误信息 */
   error?: string
+  /** 模型思考过程 */
+  thinking?: string
 }
 
 /** 来源引用 */

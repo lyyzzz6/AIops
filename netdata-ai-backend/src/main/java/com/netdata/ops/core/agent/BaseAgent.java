@@ -370,11 +370,11 @@ public abstract class BaseAgent {
 
     /**
      * 获取执行超时时间（毫秒）
-     * 默认 30 秒，子类可根据任务特性调整
+     * 默认 60 秒，子类可根据任务特性调整
      * 例如：AnalysisAgent 的 ReAct 循环可能需要更长时间
      */
     protected long getTimeoutMs() {
-        return 30_000L;
+        return 60_000L;
     }
 
     /**

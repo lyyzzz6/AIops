@@ -73,7 +73,7 @@ spring:
   # ============================================================
   ai:
     openai:
-      api-key: ${DEEPSEEK_API_KEY:sk-f37bb4263ac1451995941de334cec349}
+      api-key: sk-dc3bd1686927424faa295dfd3df56088
       base-url: ${DEEPSEEK_API_URL:https://api.deepseek.com/v1}
       chat:
         options:
@@ -110,10 +110,12 @@ milvus:
 
 # ============================================================
 # Embedding 服务配置
+# 使用 Ollama 原生 /api/embeddings 接口（往下会由 OllamaEmbeddingConfig 显式注入）
+# 注意：baseUrl 不要带 /v1，否则会拼成 /v1/v1/embeddings 导致 404
 # ============================================================
 embedding:
-  service-url: ${EMBEDDING_SERVICE_URL:-http://localhost:8002}
-  model: bge-m3
+  service-url: ${EMBEDDING_SERVICE_URL:http://localhost:11434}
+  model: ${OLLAMA_EMBEDDING_MODEL:bge-m3}
   batch-size: 32
   timeout: 30
   
@@ -146,10 +148,11 @@ rag:
 
 # ============================================================
 # LLM 降级配置（Ollama 本地模型作为 DeepSeek 备用）
+# 注意：Ollama OpenAI 兼容层需要 /v1 前缀；OllamaApi 本地调用则不要带 /v1
 # ============================================================
 llm:
   fallback:
-    base-url: ${OLLAMA_BASE_URL:http://localhost:11434/v1}
+    base-url: ${OLLAMA_BASE_URL:http://localhost:11434}/v1
     model: ${OLLAMA_MODEL:qwen2.5:7b}
 
 # ============================================================
@@ -202,7 +205,7 @@ execution:
 security:
   jwt:
     secret: ${JWT_SECRET:netdata-ops-default-jwt-secret-key-2026-must-be-256-bits}
-    access-token-expiration: 7200000   # 2小时
+    access-token-expiration: 86400000   # 24小时（演示/答辩用）
     refresh-token-expiration: 604800000  # 7天
   rate-limit:
     default-limit: 60   # 默认每分钟60次
@@ -288,12 +291,12 @@ spring:
   
   ai:
     openai:
-      # 开发环境使用 Ollama 本地
-      base-url: http://localhost:11435/v1
-      api-key: ollama
+      # 开发环境也使用 DeepSeek
+      base-url: https://api.deepseek.com/v1
+      api-key: sk-f37bb4263ac1451995941de334cec349
       chat:
         options:
-          model: qwen2.5:7b
+          model: deepseek-chat
 
 logging:
   level:

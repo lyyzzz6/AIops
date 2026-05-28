@@ -188,13 +188,15 @@ public class HybridRetriever {
             }
         }
         
-        // 按 RRF 分数排序
+        // 按 RRF 分数排序，并设置最终相关度分数（使用向量相似度）
         return rrfScores.entrySet().stream()
             .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
             .map(entry -> {
                 RetrievalResult result = docMap.get(entry.getKey());
                 if (result != null) {
                     result.setRrfScore(entry.getValue());
+                    // 使用向量相似度作为最终相关度分数（范围0-1）
+                    result.setFinalScore(result.getVectorScore() != null ? result.getVectorScore().doubleValue() : entry.getValue());
                 }
                 return result;
             })

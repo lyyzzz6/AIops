@@ -1,0 +1,51 @@
+[
+  {
+    "title": "Linux 系统性能监控工具详解",
+    "source": "运维知识库",
+    "contentType": "text",
+    "category": "运维工具",
+    "content": "Linux 系统性能监控工具包括 top、vmstat、iostat、sar、netstat 等。\n\ntop 命令：实时显示系统中各个进程的资源使用状况。按 P 按 CPU 排序，按 M 按内存排序。\n\nvmstat 命令：报告虚拟内存统计信息，包括进程、内存、分页、块 IO、陷阱和 CPU 活动。\n\niostat 命令：用于监控系统输入输出设备和 CPU 的使用情况。\n\nsar 命令：系统活动报告工具，可以收集、报告和保存系统活动信息。\n\nnetstat 命令：显示网络连接、路由表、接口状态等网络相关信息。\n\n这些工具组合使用可以全面分析系统性能问题。"
+  },
+  {
+    "title": "CPU 使用率过高问题排查指南",
+    "source": "运维知识库",
+    "contentType": "text",
+    "category": "故障排查",
+    "content": "CPU 使用率过高是常见的系统性能问题，排查步骤如下：\n\n1. 使用 top 命令查看 CPU 使用情况，找到占用 CPU 高的进程\n2. 使用 ps 命令查看该进程的详细信息：ps -ef | grep [pid]\n3. 使用 strace 跟踪进程系统调用：strace -p [pid]\n4. 使用 jstack（Java 进程）分析线程栈\n5. 检查是否有异常的调度队列：vmstat 1\n6. 分析是否存在死锁或循环\n7. 检查系统负载：uptime 或 w 命令\n8. 查看上下文切换次数：pidstat -w\n\n常见原因：\n- 应用程序逻辑问题导致死循环\n- 垃圾回收频繁（Java 应用）\n- 上下文切换过多\n- 中断处理耗时过长"
+  },
+  {
+    "title": "Nginx 502 Bad Gateway 错误排查与解决",
+    "source": "运维知识库",
+    "contentType": "text",
+    "category": "错误解决",
+    "content": "Nginx 502 Bad Gateway 表示网关错误，通常是上游服务器（如 PHP-FPM、Node.js、Tomcat 等）没有正常响应。\n\n排查步骤：\n1. 检查上游服务是否运行：systemctl status [service_name]\n2. 查看 Nginx 错误日志：tail -f /var/log/nginx/error.log\n3. 检查上游服务监听端口是否正常：netstat -tlnp | grep [port]\n4. 测试上游服务是否能直接访问：curl http://127.0.0.1:[port]\n5. 检查 Nginx 配置中的 proxy_pass 设置\n6. 查看上游服务的日志文件\n7. 检查防火墙设置\n\n常见解决方案：\n- 重启上游服务：systemctl restart [service_name]\n- 增加 upstream 服务的 worker 进程数\n- 调整 Nginx 的 proxy_timeout 配置\n- 检查是否是资源耗尽（内存、文件描述符等）"
+  },
+  {
+    "title": "MySQL 慢查询优化最佳实践",
+    "source": "运维知识库",
+    "contentType": "text",
+    "category": "数据库优化",
+    "content": "MySQL 慢查询优化是数据库性能调优的重要工作。\n\n优化步骤：\n1. 开启慢查询日志：在 my.cnf 中配置 slow_query_log=1\n2. 设置慢查询阈值：long_query_time=2（秒）\n3. 使用 explain 分析查询执行计划\n4. 检查是否使用了合适的索引\n5. 优化 SQL 语句结构\n\n常见优化方法：\n- 添加合适的索引（避免全表扫描）\n- 使用覆盖索引（Using index）\n- 避免 SELECT *，只查询需要的字段\n- 优化 JOIN 查询，确保关联字段有索引\n- 使用 LIMIT 限制结果集大小\n- 对大表进行分库分表\n- 定期执行 OPTIMIZE TABLE 维护表结构\n- 升级硬件配置（SSD、内存等）\n\n索引设计原则：\n- 区分度高的字段优先\n- 复合索引遵循最左前缀原则\n- 避免过多索引影响写入性能"
+  },
+  {
+    "title": "Docker 容器资源限制配置指南",
+    "source": "运维知识库",
+    "contentType": "text",
+    "category": "容器配置",
+    "content": "Docker 容器资源限制可以防止单个容器占用过多宿主机资源。\n\nCPU 限制：\n- --cpus：限制容器可以使用的 CPU 数量，如 --cpus=1.5\n- --cpu-shares：CPU 权重，相对值，如 --cpu-shares=512\n- --cpuset-cpus：绑定到特定 CPU 核心，如 --cpuset-cpus=0,2-3\n\n内存限制：\n- -m 或 --memory：限制内存使用量，如 -m 512m\n- --memory-swap：限制内存+交换空间使用量\n- --memory-reservation：软限制，当宿主机内存紧张时会尝试将容器内存限制到此值\n\nIO 限制：\n- --device-read-bps：块设备读取速率限制\n- --device-write-bps：块设备写入速率限制\n\n示例：\ndocker run -d --name myapp \\\n  --cpus=2 \\\n  --memory=1g \\\n  --memory-swap=2g \\\n  myimage:latest\n\n也可以在 docker-compose.yml 中配置这些限制。"
+  },
+  {
+    "title": "Java 应用内存泄漏排查实战",
+    "source": "运维知识库",
+    "contentType": "text",
+    "category": "故障排查",
+    "content": "内存泄漏是应用程序常见问题，导致 OOM 崩溃。\n\n排查工具：\n1. jstat：JVM 统计信息监控工具\n2. jmap：堆内存分析工具\n3. jstack：线程栈分析工具\n4. jhat：堆内存分析浏览器工具\n5. VisualVM：图形化监控分析工具\n6. MAT（Eclipse Memory Analyzer）：专业的内存分析工具\n\n排查步骤：\n1. 监控内存使用趋势：jstat -gcutil [pid] 1000\n2. 生成堆转储文件：jmap -dump:format=b,file=heap.hprof [pid]\n3. 使用 MAT 分析堆转储文件\n4. 查看对象引用树，定位泄漏源\n5. 分析代码，修复泄漏问题\n\n常见泄漏场景：\n- 静态集合类引用对象\n- 监听器未注销\n- 连接（数据库、网络）未关闭\n- 内部类持有外部类引用\n- ThreadLocal 未清理"
+  },
+  {
+    "title": "Redis 性能优化最佳实践",
+    "source": "运维知识库",
+    "contentType": "text",
+    "category": "数据库优化",
+    "content": "Redis 是高性能内存数据库，但仍需合理优化才能发挥最佳性能。\n\n内存优化：\n- 使用合适的数据结构（Hash 代替 String 存储对象）\n- 设置过期时间，避免内存膨胀\n- 使用 ziplist 编码小数据量集合\n- 开启 RDB 和 AOF 持久化的合理组合\n\n性能优化：\n- 避免使用 KEYS 命令，使用 SCAN 代替\n- 合理使用 Pipeline 批量操作\n- 控制单个 Value 大小不超过 10KB\n- 使用连接池减少连接开销\n- 禁用耗时命令（如 FLUSHALL、FLUSHDB）\n\n配置优化：\n- 设置 maxmemory 和 maxmemory-policy\n- 调整 hash-max-ziplist-* 等配置\n- 配置 slowlog 记录慢查询\n- 根据实际场景调整 TCP backlog\n\n集群优化：\n- 合理规划分片，避免热点 Key\n- 使用 Hash Tag 确保相关 Key 在同一分片\n- 监控集群状态，及时处理故障转移"
+  }
+]

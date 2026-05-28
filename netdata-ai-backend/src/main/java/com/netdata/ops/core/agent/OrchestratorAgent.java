@@ -56,6 +56,15 @@ public class OrchestratorAgent extends BaseAgent {
      */
     private static final long HYBRID_TIMEOUT_SECONDS = 25;
 
+    /**
+     * OrchestratorAgent 超时时间：180 秒（3分钟）
+     * 覆盖 BaseAgent 默认的 60 秒，因为可能需要等待子 Agent 完成
+     */
+    @Override
+    protected long getTimeoutMs() {
+        return 180_000L;
+    }
+
     public OrchestratorAgent(
             QueryAgent queryAgent,
             AnalysisAgent analysisAgent,

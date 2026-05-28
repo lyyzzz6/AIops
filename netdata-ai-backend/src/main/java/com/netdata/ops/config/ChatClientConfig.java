@@ -37,13 +37,13 @@ public class ChatClientConfig {
     // DeepSeek API 配置（主路径）
     // ============================================================
 
-    @Value("${spring.ai.openai.api-key:sk-f37bb4263ac1451995941de334cec349}")
+    @Value("${deepseek.api.key:${spring.ai.openai.api-key:sk-f37bb4263ac1451995941de334cec349}}")
     private String deepseekApiKey;
 
-    @Value("${spring.ai.openai.base-url:https://api.deepseek.com/v1}")
+    @Value("${deepseek.api.url:${spring.ai.openai.base-url:https://api.deepseek.com/v1}}")
     private String deepseekBaseUrl;
 
-    @Value("${spring.ai.openai.chat.options.model:deepseek-chat}")
+    @Value("${deepseek.api.model:${spring.ai.openai.chat.options.model:deepseek-chat}}")
     private String deepseekModel;
 
     // ============================================================
@@ -101,4 +101,3 @@ public class ChatClientConfig {
         return ChatClient.builder(chatModel).build();
     }
 }
-

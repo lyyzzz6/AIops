@@ -41,7 +41,7 @@ public class ReActEngine {
     private final LLMFallbackHandler llmHandler;
     private final ObjectMapper objectMapper;
 
-    private static final int MAX_ITERATIONS = 6;
+    private static final int MAX_ITERATIONS = 20;
 
     // 正则模式
     private static final Pattern THOUGHT_PATTERN = Pattern.compile(
@@ -317,7 +317,7 @@ public class ReActEngine {
             return "错误: 未指定工具名称";
         }
 
-        String cleanName = toolName.trim().toLowerCase();
+        String cleanName = cleanToolName(toolName).toLowerCase();
         Tool tool = toolRegistry.getTool(cleanName);
 
         if (tool == null) {
@@ -335,6 +335,25 @@ public class ReActEngine {
             log.error("[ReActEngine] 工具 {} 执行异常: {}", cleanName, e.getMessage());
             return "工具执行失败: " + e.getMessage();
         }
+    }
+
+    /**
+     * 清理工具名称，去除 Markdown 格式符号和其他多余字符
+     */
+    private String cleanToolName(String toolName) {
+        if (toolName == null || toolName.isBlank()) {
+            return "";
+        }
+
+        String cleaned = toolName.trim();
+
+        // 去除 Markdown 格式符号：**, `, #, >, -, *, _
+        cleaned = cleaned.replaceAll("[*_#>`\\-]+", "");
+
+        // 去除前后的空白字符
+        cleaned = cleaned.trim();
+
+        return cleaned;
     }
 
     /**

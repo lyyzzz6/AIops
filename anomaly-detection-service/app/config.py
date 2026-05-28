@@ -147,7 +147,7 @@ class Settings(BaseSettings):
     # ============================================================
     # 日志配置
     # ============================================================
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    log_level: str = "INFO"
     log_file: str | None = None
     log_rotation: str = "10 MB"
     log_retention: str = "7 days"
@@ -163,6 +163,15 @@ class Settings(BaseSettings):
             raise ValueError(f"端口号必须在 1-65535 范围内，当前值: {v}")
         return v
 
+    @field_validator("log_level")
+    @classmethod
+    def validate_log_level(cls, v: str) -> str:
+        """验证日志级别（大小写不敏感）"""
+        valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR"}
+        upper_v = v.upper()
+        if upper_v not in valid_levels:
+            raise ValueError(f"日志级别必须是 {valid_levels}，当前值: {v}")
+        return upper_v
 
 @lru_cache()
 def get_settings() -> Settings:

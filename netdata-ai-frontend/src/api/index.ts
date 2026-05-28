@@ -13,6 +13,7 @@ import type {
   Document,
 } from '@/types'
 import { ElMessage } from 'element-plus'
+import { streamRequest } from './sse-client'
 
 /**
  * API 客户端配置
@@ -161,67 +162,41 @@ export const chatApi = {
   /**
    * 发送消息—流式输出（SSE）
    * - 逐段 onDelta 下发纯文本；
+   * - onThinking 下发模型思考过程；
    * - 流结束时 onEnd 下发一条 ChatResponse（不包含 response 字段，由调用方自行累加 delta）。
    */
   async sendMessageStream(
     request: ChatRequest,
     callbacks: {
       onDelta: (delta: string) => void
-      onEnd?: (payload: Omit<ChatResponse, 'response'>) => void
+      onThinking?: (thinking: string) => void
+      onEnd?: (payload: Partial<Omit<ChatResponse, 'response'>>) => void
       onError?: (err: Error) => void
       signal?: AbortSignal
     }
   ): Promise<void> {
-    const token = localStorage.getItem('access_token')
-    const resp = await fetch('/api/v1/chat/stream', {
+    // 使用新的 SSE 客户端
+    await streamRequest({
+      url: '/api/v1/chat/stream',
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'text/event-stream',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      body: request,
+      timeout: 120000,
+      onChunk: callbacks.onDelta,
+      onThinking: callbacks.onThinking,
+      onComplete: (data) => {
+        // 后端返回的数据优先，如果没有则使用默认值
+        const payload = data || {
+          success: true,
+          sources: [],
+          intent: 'UNKNOWN',
+          suggestedCommands: [],
+          executionTimeMs: 0,
+        }
+        callbacks.onEnd?.(payload as Partial<Omit<ChatResponse, 'response'>>)
       },
-      body: JSON.stringify(request),
+      onError: callbacks.onError,
       signal: callbacks.signal,
     })
-    if (!resp.ok || !resp.body) {
-      const text = await resp.text().catch(() => '')
-      throw new Error(`流式接口调用失败：${resp.status} ${text}`)
-    }
-    const reader = resp.body.getReader()
-    const decoder = new TextDecoder('utf-8')
-    let buffer = ''
-    let currentEvent = 'message'
-    while (true) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      // SSE 以 \n\n 切分事件块
-      let sepIdx: number
-      while ((sepIdx = buffer.indexOf('\n\n')) !== -1) {
-        const rawEvent = buffer.slice(0, sepIdx)
-        buffer = buffer.slice(sepIdx + 2)
-        currentEvent = 'message'
-        const dataLines: string[] = []
-        for (const line of rawEvent.split('\n')) {
-          if (line.startsWith('event:')) {
-            currentEvent = line.slice(6).trim()
-          } else if (line.startsWith('data:')) {
-            dataLines.push(line.slice(5).trim())
-          }
-        }
-        if (dataLines.length === 0) continue
-        const dataStr = dataLines.join('\n')
-        let payload: any = null
-        try { payload = JSON.parse(dataStr) } catch { payload = dataStr }
-        if (currentEvent === 'chunk') {
-          if (payload && typeof payload.delta === 'string') callbacks.onDelta(payload.delta)
-        } else if (currentEvent === 'end') {
-          callbacks.onEnd?.(payload || {})
-        } else if (currentEvent === 'error') {
-          callbacks.onError?.(new Error(payload?.message || '流式异常'))
-        }
-      }
-    }
   },
 
   /**

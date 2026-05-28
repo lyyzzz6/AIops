@@ -50,13 +50,13 @@ public class LLMFallbackHandler {
     private final ObjectMapper objectMapper;
 
     // DeepSeek 配置
-    @Value("${spring.ai.openai.base-url:https://api.deepseek.com/v1}")
+    @Value("${deepseek.api.url:${spring.ai.openai.base-url:https://api.deepseek.com/v1}}")
     private String deepseekBaseUrl;
 
-    @Value("${spring.ai.openai.api-key:}")
+    @Value("${deepseek.api.key:${spring.ai.openai.api-key:}}")
     private String deepseekApiKey;
 
-    @Value("${spring.ai.openai.chat.options.model:deepseek-chat}")
+    @Value("${deepseek.api.model:${spring.ai.openai.chat.options.model:deepseek-chat}}")
     private String deepseekModel;
 
     // Ollama 配置
@@ -178,10 +178,50 @@ public class LLMFallbackHandler {
             log.debug("[LLM调用] DeepSeek API响应状态: {}", response.getStatusCode());
             
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                log.debug("[LLM调用] DeepSeek API原始响应: {}", response.getBody());
                 // 解析响应
                 try {
                     JsonNode root = objectMapper.readTree(response.getBody());
-                    String content = root.path("choices").get(0).path("message").path("content").asText();
+                    
+                    // 检查响应结构
+                    if (!root.has("choices") || !root.path("choices").isArray() || root.path("choices").size() == 0) {
+                        log.error("[LLM调用] 响应中没有 choices 数组: {}", response.getBody());
+                        throw new RuntimeException("响应格式错误：缺少 choices 数组");
+                    }
+                    
+                    JsonNode choice = root.path("choices").get(0);
+                    
+                    // 优先从 delta 获取内容（流式响应格式）
+                    String content = null;
+                    if (choice.has("delta")) {
+                        content = choice.path("delta").path("content").asText(null);
+                    }
+                    
+                    // 如果 delta 没有内容，尝试从 message 获取
+                    if (content == null || content.isBlank()) {
+                        if (choice.has("message")) {
+                            content = choice.path("message").path("content").asText(null);
+                        }
+                    }
+                    
+                    // 如果仍然为空，尝试使用 reasoning_content
+                    if (content == null || content.isBlank()) {
+                        log.warn("[LLM调用] content 为空，尝试使用 reasoning_content。原始响应: {}", response.getBody());
+                        if (choice.has("message")) {
+                            String reasoningContent = choice.path("message").path("reasoning_content").asText(null);
+                            if (reasoningContent != null && !reasoningContent.isBlank()) {
+                                content = reasoningContent;
+                                log.info("[LLM调用] 使用 reasoning_content 作为备选内容，长度: {}", reasoningContent.length());
+                            }
+                        }
+                    }
+                    
+                    // 最终检查内容是否有效
+                    if (content == null || content.isBlank()) {
+                        log.error("[LLM调用] 响应内容为空。原始响应: {}", response.getBody());
+                        throw new RuntimeException("LLM API 返回空内容");
+                    }
+                    
                     log.debug("[LLM调用] DeepSeek API调用成功，响应长度: {}", content.length());
                     return content;
                 } catch (Exception e) {
@@ -189,6 +229,7 @@ public class LLMFallbackHandler {
                     throw new RuntimeException("解析响应失败", e);
                 }
             } else {
+                log.error("[LLM调用] DeepSeek API调用失败，状态码: {}, 响应: {}", response.getStatusCode(), response.getBody());
                 throw new RuntimeException("DeepSeek API调用失败，状态码: " + response.getStatusCode());
             }
         } catch (Exception e) {

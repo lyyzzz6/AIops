@@ -27,6 +27,7 @@ import java.util.regex.Pattern;
 public class ExecutionAuditService {
 
     private final ExecutionAuditMapper auditMapper;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      private final com.netdata.ops.core.agent.ExecutionAgent executionAgent;
 
     /**
      * 高危命令模式
@@ -89,6 +90,19 @@ public class ExecutionAuditService {
             audit.setStatus("approved");
             audit.setApproverId(userId); // 自审批
             audit.setApprovedAt(LocalDateTime.now());
+            // 低风险命令自动执行
+            try {
+                com.netdata.ops.core.agent.AgentResult result = executionAgent.executeCommand(command, true);
+                audit.setStatus(result.isSuccess() ? "completed" : "failed");
+                audit.setExecutionResult(result.getResponse());
+                audit.setExecutedAt(LocalDateTime.now());
+                log.info("低风险命令自动执行完成: requestId={}, success={}", requestId, result.isSuccess());
+            } catch (Exception e) {
+                audit.setStatus("failed");
+                audit.setExecutionResult("命令执行异常: " + e.getMessage());
+                audit.setExecutedAt(LocalDateTime.now());
+                log.error("低风险命令自动执行异常: requestId={}, error={}", requestId, e.getMessage(), e);
+            }
         } else if ("CRITICAL".equals(riskLevel)) {
             audit.setStatus("rejected");
             log.warn("危险命令被自动拦截: command={}, user={}", command, SecurityUtils.getCurrentUsername());
@@ -117,6 +131,7 @@ public class ExecutionAuditService {
             throw new BusinessException(ErrorCode.PARAM_INVALID, "该请求已被处理");
         }
 
+        // 更新为已批准状态
         audit.setStatus("approved");
         audit.setApproverId(approverId);
         audit.setApprovedAt(LocalDateTime.now());
@@ -124,6 +139,36 @@ public class ExecutionAuditService {
         auditMapper.updateById(audit);
 
         log.info("命令执行已批准: requestId={}, approver={}", audit.getRequestId(), approverId);
+
+        // ========== 执行命令并回填结果 ==========
+        String command = audit.getCommand();
+        log.info("开始执行命令: requestId={}, command={}", audit.getRequestId(), command);
+
+        try {
+            // 调用 ExecutionAgent 执行命令
+            com.netdata.ops.core.agent.AgentResult result = executionAgent.executeCommand(command, true);
+
+            // 回填执行结果
+            audit.setStatus(result.isSuccess() ? "completed" : "failed");
+            audit.setExecutionResult(result.getResponse());
+            audit.setExecutedAt(LocalDateTime.now());
+            audit.setUpdatedAt(LocalDateTime.now());
+            auditMapper.updateById(audit);
+
+            log.info("命令执行完成: requestId={}, success={}, executionTime={}ms", 
+                    audit.getRequestId(), result.isSuccess(), result.getExecutionTimeMs());
+        } catch (Exception e) {
+            // 执行失败
+            audit.setStatus("failed");
+            audit.setExecutionResult("命令执行异常: " + e.getMessage());
+            audit.setExecutedAt(LocalDateTime.now());
+            audit.setUpdatedAt(LocalDateTime.now());
+            auditMapper.updateById(audit);
+
+            log.error("命令执行异常: requestId={}, command={}, error={}", 
+                    audit.getRequestId(), command, e.getMessage(), e);
+        }
+
         return audit;
     }
 

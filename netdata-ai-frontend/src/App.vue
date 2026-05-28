@@ -146,9 +146,9 @@ html, body, #app {
   align-items: center;
   gap: 24px;
   padding: 0 24px;
-  background: #fff;
-  border-bottom: 1px solid #e4e7ed;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-bottom: 1px solid #5a4a9a;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
 
   .brand {
     display: flex;

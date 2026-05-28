@@ -17,29 +17,45 @@
       <!-- 文本内容 -->
       <div class="content-text">
         <!-- Loading 状态 -->
-        <template v-if="message.loading">
-          <div class="loading-dots">
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
-        </template>
+        <div v-if="message.loading" class="loading-dots">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
         
         <!-- 错误状态 -->
-        <template v-else-if="message.error">
-          <div class="error-message">
-            <el-icon><WarningFilled /></el-icon>
-            {{ message.error }}
-            <el-button text type="primary" @click="$emit('retry')">
-              重试
-            </el-button>
-          </div>
-        </template>
+        <div v-else-if="message.error" class="error-message">
+          <el-icon><WarningFilled /></el-icon>
+          {{ message.error }}
+          <el-button text type="primary" @click="$emit('retry')">
+            重试
+          </el-button>
+        </div>
         
         <!-- 正常内容 -->
         <template v-else>
-          <!-- Markdown 渲染 -->
-          <div class="markdown-body" v-html="renderedContent"></div>
+          <!-- 思考过程 -->
+          <div v-if="message.thinking" class="thinking-box">
+            <div class="thinking-header">
+              <el-icon><Search /></el-icon>
+              <span>思考过程</span>
+            </div>
+            <div class="thinking-content">
+              {{ message.thinking }}
+            </div>
+          </div>
+          
+          <!-- Markdown 渲染 - 只有有内容时才显示 -->
+          <div 
+            v-if="message.content && message.content.trim()" 
+            class="markdown-body" 
+            v-html="renderedContent"
+          ></div>
+          
+          <!-- 空内容提示 -->
+          <div v-else-if="!message.loading && !message.error" class="empty-content">
+            <span class="text-muted">暂无内容</span>
+          </div>
           
           <!-- 来源引用 -->
           <div v-if="message.sources?.length" class="sources">
@@ -129,7 +145,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { User, Monitor, WarningFilled, Link, Platform } from '@element-plus/icons-vue'
+import { User, Monitor, WarningFilled, Link, Platform, Search } from '@element-plus/icons-vue'
 import type { Message, CommandSuggestion } from '@/types'
 import dayjs from 'dayjs'
 import MarkdownIt from 'markdown-it'
@@ -148,7 +164,7 @@ defineEmits<{
 }>()
 
 // Markdown 渲染器
-const md = new MarkdownIt({
+const md: MarkdownIt = new MarkdownIt({
   html: false,
   linkify: true,
   highlight: (str, lang) => {
@@ -163,9 +179,10 @@ const md = new MarkdownIt({
   },
 })
 
-// 渲染后的内容
+// 渲染后的内容 - 每次都重新渲染以确保实时更新
 const renderedContent = computed(() => {
-  return md.render(props.message.content || '')
+  const content = props.message.content || ''
+  return md.render(content)
 })
 
 // 格式化时间
@@ -203,7 +220,7 @@ function submitBtnType(cmd: CommandSuggestion): 'warning' | 'success' | 'danger'
 }
 
 // 审计状态标签
- function auditStatusLabel(st?: string): string {
+function auditStatusLabel(st?: string): string {
   switch (st) {
     case 'pending': return '待审批'
     case 'approved': return '已批准'
@@ -320,6 +337,14 @@ function auditTagType(st?: string): 'success' | 'warning' | 'danger' | 'info' {
   color: #f56c6c;
 }
 
+.empty-content {
+  .text-muted {
+    color: #909399;
+    font-size: 13px;
+    font-style: italic;
+  }
+}
+
 .markdown-body {
   :deep(pre) {
     background: #1e1e1e;
@@ -348,6 +373,35 @@ function auditTagType(st?: string): 'success' | 'warning' | 'danger' | 'info' {
   :deep(ul), :deep(ol) {
     padding-left: 20px;
   }
+  
+  :deep(p) {
+    margin: 8px 0;
+  }
+}
+
+.thinking-box {
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.thinking-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #faad14;
+  margin-bottom: 8px;
+}
+
+.thinking-content {
+  font-size: 13px;
+  color: #8b7355;
+  line-height: 1.6;
+  font-style: italic;
 }
 
 .sources {

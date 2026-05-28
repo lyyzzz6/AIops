@@ -21,6 +21,7 @@ import java.util.UUID;
  * 1. 执行状态保存与查询（RUNNING → COMPLETED / FAILED / TIMEOUT）
  * 2. 审批流程状态机（PENDING → APPROVED / REJECTED → EXECUTED）
  * 3. TTL 过期自动清理（默认 24 小时）
+ * 4. 命令执行审计日志记录
  *
  * 线程安全：依赖 Redis 原子操作，本身无可变状态。
  *
@@ -43,6 +44,16 @@ public class AgentStateManager {
      * 审批请求 Redis Key 前缀
      */
     private static final String APPROVAL_PREFIX = "agent:approval:";
+
+    /**
+     * 命令审计日志 Redis Key 前缀
+     */
+    private static final String AUDIT_PREFIX = "agent:audit:";
+
+    /**
+     * 审计日志列表 Key（用于存储最近的审计记录）
+     */
+    private static final String AUDIT_LIST_KEY = "agent:audit:list";
 
     /**
      * 默认 TTL（24 小时后自动清理）
@@ -220,6 +231,91 @@ public class AgentStateManager {
             default:
                 return false;
         }
+    }
+
+    // ==================== 命令执行审计日志 ====================
+
+    /**
+     * 记录命令执行审计日志
+     *
+     * @param command 执行的命令
+     * @param approved 是否已经审批
+     */
+    public void recordCommandExecution(String command, boolean approved) {
+        try {
+            CommandAuditLog auditLog = CommandAuditLog.builder()
+                    .id(UUID.randomUUID().toString())
+                    .command(command)
+                    .approved(approved)
+                    .executedAt(Instant.now())
+                    .build();
+
+            String json = objectMapper.writeValueAsString(auditLog);
+            String key = AUDIT_PREFIX + auditLog.getId();
+
+            // 存储单条审计记录
+            redisTemplate.opsForValue().set(key, json, Duration.ofDays(90)); // 审计日志保留90天
+
+            // 添加到审计日志列表（按时间排序）
+            redisTemplate.opsForList().leftPush(AUDIT_LIST_KEY, key);
+            redisTemplate.opsForList().trim(AUDIT_LIST_KEY, 0, 999); // 只保留最近1000条
+
+            log.info("[审计] 命令执行记录已保存: command={}, approved={}, auditId={}",
+                    command, approved, auditLog.getId());
+        } catch (JsonProcessingException e) {
+            log.error("[审计] 保存命令执行审计日志失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 获取最近的审计日志
+     *
+     * @param limit 返回记录数量
+     * @return 审计日志列表
+     */
+    public java.util.List<CommandAuditLog> getRecentAuditLogs(int limit) {
+        java.util.List<CommandAuditLog> logs = new java.util.ArrayList<>();
+
+        try {
+            java.util.List<String> keys = redisTemplate.opsForList().range(AUDIT_LIST_KEY, 0, limit - 1);
+            if (keys != null) {
+                for (String key : keys) {
+                    String json = redisTemplate.opsForValue().get(key);
+                    if (json != null) {
+                        CommandAuditLog log = objectMapper.readValue(json, CommandAuditLog.class);
+                        logs.add(log);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("[审计] 获取审计日志失败: {}", e.getMessage());
+        }
+
+        return logs;
+    }
+
+    /**
+     * 命令执行审计日志实体
+     */
+    @lombok.Data
+    @lombok.Builder
+    @lombok.NoArgsConstructor
+    @lombok.AllArgsConstructor
+    public static class CommandAuditLog {
+        /** 审计记录ID */
+        private String id;
+        /** 执行的命令 */
+        private String command;
+        /** 是否已经审批 */
+        private boolean approved;
+        /** 执行时间 */
+        private Instant executedAt;
+        /** 执行用户（可选） */
+        private String executedBy;
+        /** 执行结果（可选，成功/失败） */
+        private String result;
+        /** 退出码（可选） */
+        private Integer exitCode;
     }
 
     // ==================== 枚举定义 ====================
