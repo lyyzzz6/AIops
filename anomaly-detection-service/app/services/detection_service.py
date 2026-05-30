@@ -29,7 +29,6 @@ from app.core import (
     LOFDetector,
     KNNDetector,
     HalfSpaceTreesDetector,
-    xStreamDetector,
 )
 from app.models import DetectorType
 
@@ -300,11 +299,6 @@ class DetectionService:
 
         elif detector_type == DetectorType.HALF_SPACE_TREES.value:
             return HalfSpaceTreesDetector(
-                window_size=settings.online_window_size,
-            )
-
-        elif detector_type == DetectorType.XSTREAM.value:
-            return xStreamDetector(
                 window_size=settings.online_window_size,
             )
 

@@ -130,10 +130,10 @@ class Settings(BaseSettings):
     # 检测阈值配置
     # ============================================================
     # 异常分数阈值（0-1，越大越异常）
-    anomaly_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
+    anomaly_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
 
     # 告警阈值（触发告警的异常分数）
-    alert_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
+    alert_threshold: float = Field(default=0.98, ge=0.0, le=1.0)
 
     # ============================================================
     # 性能配置

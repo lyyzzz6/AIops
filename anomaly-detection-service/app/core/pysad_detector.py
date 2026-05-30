@@ -26,7 +26,7 @@ from app.core.detector_base import DetectorFactory, OnlineDetector
 
 # PySAD 导入
 try:
-    from pysad.models import HalfSpaceTrees, xStream
+    from pysad.models import HalfSpaceTrees
     from pysad.utils import ArrayStreamer
     PYSAD_AVAILABLE = True
 except ImportError:
@@ -238,108 +238,7 @@ class HalfSpaceTreesDetector(OnlineDetector):
         return stats
 
 
-class xStreamDetector(OnlineDetector):
-    """
-    xStream 流式异常检测器
 
-    原理：
-        使用参考角度和链式投影
-        比半空间树更适合高维数据
-
-    优点：
-        - 适合高维流式数据
-        - 检测精度高
-
-    缺点：
-        - 计算复杂度较高
-        - 内存占用稍大
-
-    适用场景：
-        - 多维指标联合检测
-        - 复杂特征的异常检测
-    """
-
-    def __init__(
-        self,
-        name: str = "xstream",
-        n_components: int = 100,
-        n_chains: int = 100,
-        window_size: int = 100,
-    ):
-        """
-        初始化 xStream 检测器
-
-        Args:
-            name: 检测器名称
-            n_components: 组件数量
-            n_chains: 链数量
-            window_size: 窗口大小
-        """
-        super().__init__(name, contamination=0.1)
-
-        if not PYSAD_AVAILABLE:
-            raise ImportError("PySAD 未安装，无法使用 xStream")
-
-        self.n_components = n_components
-        self.n_chains = n_chains
-        self.window_size = window_size
-
-        # 初始化模型
-        self._model = xStream(
-            n_components=self.n_components,
-            n_chains=self.n_chains,
-            window_size=self.window_size,
-        )
-
-        self._sample_count = 0
-
-    def fit(self, X: np.ndarray) -> "xStreamDetector":
-        """预热检测器"""
-        X = self._validate_input(X)
-
-        logger.info(f"预热 xStream: {X.shape[0]} 样本")
-
-        for x in X:
-            self._model.score(x.reshape(1, -1))
-
-        self._is_fitted = True
-        self._sample_count = len(X)
-
-        return self
-
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        """批量预测"""
-        X = self._validate_input(X)
-
-        scores = []
-        for x in X:
-            score = self._model.score(x.reshape(1, -1))[0]
-            scores.append(self._normalize_stream_score(score))
-
-        self._sample_count += len(X)
-        return np.array(scores)
-
-    def partial_fit(self, X: np.ndarray) -> "xStreamDetector":
-        """在线学习"""
-        X = self._validate_input(X)
-
-        for x in X:
-            self._model.score(x.reshape(1, -1))
-
-        self._sample_count += len(X)
-        return self
-
-    def score_single(self, value: float) -> float:
-        """对单个值评分"""
-        x = np.array([[value]])
-        score = self._model.score(x)[0]
-        self._sample_count += 1
-        return self._normalize_stream_score(score)
-
-    def _normalize_stream_score(self, score: float) -> float:
-        """归一化流式分数"""
-        import math
-        return 1 / (1 + math.exp(-score))
 
 
 # ============================================================
@@ -347,11 +246,9 @@ class xStreamDetector(OnlineDetector):
 # ============================================================
 if PYSAD_AVAILABLE:
     DetectorFactory.register("half_space_trees", HalfSpaceTreesDetector)
-    DetectorFactory.register("xstream", xStreamDetector)
 
 
 __all__ = [
     "HalfSpaceTreesDetector",
-    "xStreamDetector",
     "PYSAD_AVAILABLE",
 ]

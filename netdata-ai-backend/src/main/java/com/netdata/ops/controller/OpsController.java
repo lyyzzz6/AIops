@@ -2,6 +2,7 @@ package com.netdata.ops.controller;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.netdata.ops.annotation.OperationLogAnno;
 import com.netdata.ops.core.agent.*;
 import com.netdata.ops.core.ai.LLMFallbackHandler;
 import com.netdata.ops.core.rag.HybridRetriever;
@@ -66,6 +67,7 @@ public class OpsController {
      * 智能问答（自动落盘 chat_conversation + chat_message）
      */
     @PostMapping("/chat")
+    @OperationLogAnno(module = "智能问答", action = "QUERY", description = "智能问答")
     public Map<String, Object> chat(@RequestBody ChatRequest request) {
         log.info("收到问答请求: {}", request.getQuery());
 
@@ -126,6 +128,7 @@ public class OpsController {
      *   event: ping    data: (empty)                 — 心跳保活
      */
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @OperationLogAnno(module = "智能问答", action = "QUERY", description = "智能问答(流式)")
     public SseEmitter chatStream(@RequestBody ChatRequest request) {
         log.info("收到流式问答请求: {}", request.getQuery());
         SseEmitter emitter = new SseEmitter(5 * 60 * 1000L);
@@ -183,7 +186,7 @@ public class OpsController {
                     String response = result.getResponse();
                     int chunkSize = 10;
                     long startTime = System.currentTimeMillis();
-                    
+
                     for (int i = 0; i < response.length(); i += chunkSize) {
                         int end = Math.min(i + chunkSize, response.length());
                         String chunk = response.substring(i, end);
@@ -192,7 +195,7 @@ public class OpsController {
                         try {
                             emitter.send(SseEmitter.event().name("chunk")
                                     .data(toJson(payload), MediaType.APPLICATION_JSON));
-                            
+
                             long elapsed = System.currentTimeMillis() - startTime;
                             long remaining = response.length() - i;
                             if (remaining > 0 && elapsed < 2000) {
@@ -207,11 +210,33 @@ public class OpsController {
                     }
                 }
 
-                // 6) 准备 end 事件数据
+                // 6) 如果有错误信息（命令执行失败），发送给前端
+                if (result.getErrorMessage() != null && !result.getErrorMessage().isEmpty()) {
+                    String errorMsg = "❌ 命令执行失败\n\n";
+                    errorMsg += "错误信息: " + result.getErrorMessage() + "\n\n";
+                    if (result.getResponse() != null && !result.getResponse().isEmpty()) {
+                        errorMsg += "命令输出:\n" + result.getResponse() + "\n\n";
+                    }
+                    errorMsg += "您可以手动执行以下命令进行排查:\n";
+                    if (result.getSuggestedCommands() != null && !result.getSuggestedCommands().isEmpty()) {
+                        for (AgentResult.CommandSuggestion cmd : result.getSuggestedCommands()) {
+                            errorMsg += "• " + cmd.getCommand() + "\n";
+                        }
+                    } else {
+                        errorMsg += "• 检查系统日志\n";
+                        errorMsg += "• 查看服务状态\n";
+                    }
+                    Map<String, Object> payload = new HashMap<>();
+                    payload.put("delta", errorMsg);
+                    emitter.send(SseEmitter.event().name("chunk")
+                            .data(toJson(payload), MediaType.APPLICATION_JSON));
+                }
+
+                // 7) 准备 end 事件数据
                 String intentStr = result.getIntentType() != null ? result.getIntentType().name() : "UNKNOWN";
                 List<Map<String, Object>> suggestedCommands = convertCommandSuggestions(result.getSuggestedCommands());
 
-                // 7) 落盘助手消息
+                // 8) 落盘助手消息
                 if (conversation != null) {
                     chatHistoryService.appendAssistantMessage(
                             conversation.getId(),
@@ -223,7 +248,7 @@ public class OpsController {
                             execMs);
                 }
 
-                // 8) 下发 end 事件（优化：工具调用历史太大，改为发送摘要）
+                // 9) 下发 end 事件（优化：工具调用历史太大，改为发送摘要）
                 Map<String, Object> endPayload = new HashMap<>();
                 endPayload.put("success", result.isSuccess());
                 endPayload.put("intent", intentStr);

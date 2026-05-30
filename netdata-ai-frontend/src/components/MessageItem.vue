@@ -248,76 +248,102 @@ function auditTagType(st?: string): 'success' | 'warning' | 'danger' | 'info' {
 <style scoped lang="scss">
 .message-item {
   display: flex;
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: 16px;
+  margin-bottom: 28px;
+  max-width: 850px;
   
   &.user {
+    flex-direction: row-reverse;
+    margin-left: auto;
+    
     .avatar {
-      background: #409eff;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      box-shadow: 0 4px 14px rgba(102, 126, 234, 0.3);
     }
     .message-content {
-      background: #ecf5ff;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      box-shadow: 0 8px 24px rgba(102, 126, 234, 0.25);
+    }
+    .role-label {
+      color: rgba(255, 255, 255, 0.9);
+      
+      .time {
+        color: rgba(255, 255, 255, 0.7);
+      }
+    }
+    .content-text {
+      color: white;
     }
   }
   
   &.assistant {
     .avatar {
-      background: #67c23a;
+      background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+      box-shadow: 0 4px 14px rgba(17, 153, 142, 0.25);
     }
     .message-content {
-      background: #fff;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
     }
   }
 }
 
 .avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
   flex-shrink: 0;
+  font-size: 20px;
 }
 
 .message-content {
   flex: 1;
   min-width: 0;
-  border-radius: 8px;
-  padding: 12px 16px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  border-radius: 18px;
+  padding: 18px 22px;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  &:hover {
+    transform: translateY(-1px);
+  }
 }
 
 .role-label {
-  font-size: 14px;
-  font-weight: 500;
-  margin-bottom: 8px;
-  color: #303133;
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: #1d2129;
+  letter-spacing: -0.2px;
   
   .time {
     font-weight: normal;
-    color: #909399;
-    font-size: 12px;
-    margin-left: 8px;
+    color: #86909c;
+    font-size: 13px;
+    margin-left: 10px;
   }
 }
 
 .content-text {
-  font-size: 14px;
-  line-height: 1.6;
-  color: #303133;
+  font-size: 15px;
+  line-height: 1.7;
+  color: #1d2129;
 }
 
 .loading-dots {
   display: flex;
-  gap: 4px;
+  gap: 6px;
   
   span {
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
-    background: #409eff;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     animation: bounce 1.4s infinite ease-in-out both;
     
     &:nth-child(1) { animation-delay: -0.32s; }
@@ -326,175 +352,238 @@ function auditTagType(st?: string): 'success' | 'warning' | 'danger' | 'info' {
 }
 
 @keyframes bounce {
-  0%, 80%, 100% { transform: scale(0); }
+  0%, 80%, 100% { transform: scale(0.6); }
   40% { transform: scale(1); }
 }
 
 .error-message {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  padding: 14px 18px;
+  background: rgba(245, 108, 108, 0.08);
+  border-radius: 12px;
   color: #f56c6c;
+  border: 1px solid rgba(245, 108, 108, 0.15);
+  
+  .el-button {
+    color: #f56c6c;
+    font-weight: 500;
+  }
 }
 
 .empty-content {
   .text-muted {
-    color: #909399;
-    font-size: 13px;
+    color: #86909c;
+    font-size: 14px;
     font-style: italic;
   }
 }
 
 .markdown-body {
   :deep(pre) {
-    background: #1e1e1e;
-    border-radius: 8px;
-    padding: 16px;
+    background: #0f172a;
+    border-radius: 14px;
+    padding: 18px;
     overflow-x: auto;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     
     code {
-      font-family: 'Fira Code', monospace;
+      font-family: 'SF Mono', 'Fira Code', monospace;
       font-size: 13px;
+      line-height: 1.6;
     }
   }
   
   :deep(code:not(.hljs code)) {
-    background: #f5f7fa;
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-family: 'Fira Code', monospace;
+    background: rgba(102, 126, 234, 0.08);
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
     font-size: 13px;
+    color: #667eea;
   }
   
   :deep(h1), :deep(h2), :deep(h3) {
-    margin: 16px 0 8px;
+    margin: 18px 0 10px;
+    font-weight: 600;
+    color: #1d2129;
   }
   
   :deep(ul), :deep(ol) {
-    padding-left: 20px;
+    padding-left: 24px;
+    margin: 10px 0;
   }
   
   :deep(p) {
-    margin: 8px 0;
+    margin: 10px 0;
+  }
+  
+  :deep(a) {
+    color: #667eea;
+    text-decoration: none;
+    font-weight: 500;
+    
+    &:hover {
+      text-decoration: underline;
+    }
   }
 }
 
 .thinking-box {
-  background: #fffbe6;
-  border: 1px solid #ffe58f;
-  border-radius: 8px;
-  padding: 12px;
-  margin-bottom: 12px;
+  background: linear-gradient(135deg, #fffbe6 0%, #fff5d8 100%);
+  border: 1px solid rgba(250, 173, 20, 0.2);
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  box-shadow: 0 2px 8px rgba(250, 173, 20, 0.08);
 }
 
 .thinking-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 500;
-  color: #faad14;
-  margin-bottom: 8px;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #d48806;
+  margin-bottom: 10px;
 }
 
 .thinking-content {
-  font-size: 13px;
+  font-size: 14px;
   color: #8b7355;
-  line-height: 1.6;
+  line-height: 1.7;
   font-style: italic;
 }
 
 .sources {
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px solid #e4e7ed;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .sources-title {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 13px;
-  color: #909399;
-  margin-bottom: 8px;
+  gap: 6px;
+  font-size: 14px;
+  color: #86909c;
+  margin-bottom: 10px;
+  font-weight: 500;
 }
 
 .source-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .source-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  gap: 10px;
+  font-size: 14px;
+  padding: 10px 14px;
+  background: rgba(102, 126, 234, 0.04);
+  border-radius: 10px;
+  border: 1px solid rgba(102, 126, 234, 0.08);
   
   .source-title {
     flex: 1;
-    color: #303133;
+    color: #1d2129;
+    font-weight: 500;
   }
   
   .source-score {
-    color: #909399;
-    font-size: 12px;
+    color: #86909c;
+    font-size: 13px;
   }
 }
 
 .commands {
-  margin-top: 16px;
-  padding: 12px;
-  background: #fafafa;
-  border-radius: 8px;
+  margin-top: 20px;
+  padding: 16px;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 74, 162, 0.05) 100%);
+  border-radius: 14px;
+  border: 1px solid rgba(102, 126, 234, 0.1);
 }
 
 .commands-title {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 13px;
-  color: #909399;
-  margin-bottom: 12px;
+  gap: 6px;
+  font-size: 14px;
+  color: #667eea;
+  margin-bottom: 14px;
+  font-weight: 600;
 }
 
 .command-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .command-item {
-  padding: 12px;
-  background: #fff;
-  border-radius: 6px;
-  border: 1px solid #e4e7ed;
+  padding: 16px;
+  background: white;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
+    border-color: rgba(102, 126, 234, 0.15);
+  }
 }
 
 .command-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
+  gap: 10px;
+  margin-bottom: 8px;
 }
 
 .command-code {
   flex: 1;
-  font-family: 'Fira Code', monospace;
-  font-size: 13px;
-  background: #f5f7fa;
-  padding: 4px 8px;
-  border-radius: 4px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 14px;
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  overflow-x: auto;
 }
 
 .command-desc {
-  font-size: 13px;
-  color: #606266;
-  margin-bottom: 8px;
+  font-size: 14px;
+  color: #4e5969;
+  margin-bottom: 12px;
 }
 
 .command-actions {
   display: flex;
-  gap: 8px;
+  gap: 10px;
+  flex-wrap: wrap;
+  
+  .el-button {
+    border-radius: 10px;
+    height: 36px;
+    padding: 0 18px;
+    font-weight: 500;
+    
+    &.el-button--primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border: none;
+      box-shadow: 0 2px 8px rgba(102, 126, 234, 0.25);
+      
+      &:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.35);
+      }
+    }
+  }
 }
 </style>

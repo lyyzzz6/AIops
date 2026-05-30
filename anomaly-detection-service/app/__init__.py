@@ -26,12 +26,6 @@ from pyod.models.pca import PCA
 # 半空间树 - 适合实时监控
 from pysad.models import HalfSpaceTrees
 
-# 流式孤立森林
-from pysad.models import StreamingRHF
-
-# xStream: 流式异常检测
-from pysad.models import xStream
-
 # ============================================================
 # 导出可用算法
 # ============================================================
@@ -44,6 +38,4 @@ __all__ = [
     "PCA",
     # 在线检测器
     "HalfSpaceTrees",
-    "StreamingRHF",
-    "xStream",
 ]

@@ -1,6 +1,7 @@
 package com.netdata.ops.controller;
 
 import com.netdata.ops.annotation.AdminOnly;
+import com.netdata.ops.annotation.OperationLogAnno;
 import com.netdata.ops.annotation.RequirePermission;
 import com.netdata.ops.dto.response.R;
 import com.netdata.ops.entity.SysPermission;
@@ -40,6 +41,7 @@ public class RoleController {
     @Operation(summary = "创建角色")
     @PostMapping
     @RequirePermission("role:write")
+    @OperationLogAnno(module = "角色管理", action = "CREATE", description = "创建角色")
     public R<SysRole> createRole(@RequestBody SysRole role) {
         return R.ok("角色创建成功", roleService.createRole(role));
     }
@@ -47,6 +49,7 @@ public class RoleController {
     @Operation(summary = "更新角色")
     @PutMapping("/{id}")
     @RequirePermission("role:write")
+    @OperationLogAnno(module = "角色管理", action = "UPDATE", description = "更新角色")
     public R<SysRole> updateRole(@PathVariable Long id, @RequestBody SysRole role) {
         return R.ok("角色更新成功", roleService.updateRole(id, role));
     }
@@ -54,6 +57,7 @@ public class RoleController {
     @Operation(summary = "删除角色")
     @DeleteMapping("/{id}")
     @RequirePermission("role:delete")
+    @OperationLogAnno(module = "角色管理", action = "DELETE", description = "删除角色")
     public R<Void> deleteRole(@PathVariable Long id) {
         roleService.deleteRole(id);
         return R.ok();

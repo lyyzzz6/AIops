@@ -38,16 +38,20 @@
       <el-form :inline="true" :model="filter">
         <el-form-item label="模块">
           <el-select v-model="filter.module" placeholder="全部" clearable style="width: 140px">
-            <el-option label="用户" value="user" />
-            <el-option label="角色" value="role" />
-            <el-option label="审批" value="approval" />
-            <el-option label="命令执行" value="execution" />
-            <el-option label="知识库" value="knowledge" />
-            <el-option label="登录" value="auth" />
+            <el-option label="用户管理" value="用户管理" />
+            <el-option label="角色管理" value="角色管理" />
+            <el-option label="认证管理" value="认证管理" />
+            <el-option label="智能问答" value="智能问答" />
           </el-select>
         </el-form-item>
         <el-form-item label="操作">
-          <el-input v-model="filter.action" placeholder="如 CREATE" clearable style="width: 140px" />
+          <el-select v-model="filter.action" placeholder="全部" clearable style="width: 140px">
+            <el-option label="登录" value="LOGIN" />
+            <el-option label="创建" value="CREATE" />
+            <el-option label="更新" value="UPDATE" />
+            <el-option label="删除" value="DELETE" />
+            <el-option label="查询" value="QUERY" />
+          </el-select>
         </el-form-item>
         <el-form-item label="用户名">
           <el-input v-model="filter.username" placeholder="用户名" clearable style="width: 140px" />
@@ -161,15 +165,17 @@ onMounted(async () => {
 async function loadLogs() {
   loading.value = true
   try {
-    const res = await operationLogApi.list({
+    const params: Record<string, any> = {
       current: pagination.current,
       size: pagination.size,
-      module: filter.module || undefined,
-      action: filter.action || undefined,
-      username: filter.username || undefined,
-      startTime: dateRange.value?.[0],
-      endTime: dateRange.value?.[1],
-    })
+    }
+    if (filter.module) params.module = filter.module
+    if (filter.action) params.action = filter.action
+    if (filter.username) params.username = filter.username
+    if (dateRange.value?.[0]) params.startTime = dateRange.value[0]
+    if (dateRange.value?.[1]) params.endTime = dateRange.value[1]
+    
+    const res = await operationLogApi.list(params)
     logs.value = res?.records || []
     pagination.total = res?.total || 0
   } finally {

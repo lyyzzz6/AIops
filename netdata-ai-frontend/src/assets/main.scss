@@ -2,25 +2,26 @@
  * 全局样式
  */
 
-// CSS 变量
+// CSS 变量 - 深邃科技蓝主题
 :root {
-  --primary-color: #409eff;
-  --success-color: #67c23a;
-  --warning-color: #e6a23c;
-  --danger-color: #f56c6c;
-  --info-color: #909399;
-  
-  --text-primary: #303133;
-  --text-regular: #606266;
-  --text-secondary: #909399;
-  --text-placeholder: #c0c4cc;
-  
-  --border-color: #dcdfe6;
-  --border-light: #e4e7ed;
-  --border-lighter: #ebeef5;
-  
-  --bg-color: #f5f7fa;
-  --bg-light: #fafafa;
+  --primary-color: #00d4aa;
+  --success-color: #52c41a;
+  --warning-color: #faad14;
+  --danger-color: #ff4d4f;
+  --info-color: #1890ff;
+
+  --text-primary: #e8e8e8;
+  --text-regular: #bfbfbf;
+  --text-secondary: #8c8c8c;
+  --text-placeholder: #5c5c5c;
+
+  --border-color: #303030;
+  --border-light: #404040;
+  --border-lighter: #4d4d4d;
+
+  --bg-color: #1a1a2e;
+  --bg-light: #16213e;
+  --bg-dark: #0f0f1a;
 }
 
 // 重置样式

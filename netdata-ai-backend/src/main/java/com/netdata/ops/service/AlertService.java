@@ -27,6 +27,7 @@ import java.util.Map;
 public class AlertService {
 
     private final AlertRecordMapper alertRecordMapper;
+    private final EmailService emailService;
 
     /**
      * 分页查询告警记录
@@ -98,14 +99,27 @@ public class AlertService {
     public AlertRecord createAlert(String alertId, String source, String severity,
                                     String alertName, String message, String host,
                                     String metricName, String metricValue, String threshold) {
-        // 去重：如果同一个alertId已存在且状态为firing，不重复创建
+        // 先检查该 alertId 是否已存在（无论状态）
         LambdaQueryWrapper<AlertRecord> existsWrapper = new LambdaQueryWrapper<>();
-        existsWrapper.eq(AlertRecord::getAlertId, alertId)
-                .eq(AlertRecord::getStatus, "firing");
-        Long existing = alertRecordMapper.selectCount(existsWrapper);
-        if (existing > 0) {
-            log.debug("告警已存在，跳过: alertId={}", alertId);
-            return alertRecordMapper.selectOne(existsWrapper);
+        existsWrapper.eq(AlertRecord::getAlertId, alertId);
+        AlertRecord existingAlert = alertRecordMapper.selectOne(existsWrapper);
+        
+        if (existingAlert != null) {
+            if ("firing".equals(existingAlert.getStatus())) {
+                // 已有正在 firing 的告警，更新数据但保留状态
+                log.debug("告警已存在且正在firing，更新数据: alertId={}", alertId);
+                existingAlert.setSeverity(severity != null ? severity : "warning");
+                existingAlert.setMetricValue(metricValue);
+                existingAlert.setThreshold(threshold);
+                existingAlert.setMessage(message);
+                existingAlert.setUpdatedAt(LocalDateTime.now());
+                alertRecordMapper.updateById(existingAlert);
+                return existingAlert;
+            } else {
+                // 之前已恢复的告警，先删除旧记录，再重新创建
+                log.debug("旧告警已恢复，删除旧记录并重新创建: alertId={}", alertId);
+                alertRecordMapper.deleteById(existingAlert.getId());
+            }
         }
 
         AlertRecord alert = new AlertRecord();
@@ -124,6 +138,12 @@ public class AlertService {
         alertRecordMapper.insert(alert);
 
         log.info("新告警入库: alertId={}, severity={}, host={}", alertId, severity, host);
+
+        // 发送邮件通知（仅 critical 和 warning 级别）
+        if ("critical".equals(alert.getSeverity()) || "warning".equals(alert.getSeverity())) {
+            emailService.sendAlertNotification(alert);
+        }
+
         return alert;
     }
 
@@ -154,16 +174,40 @@ public class AlertService {
      */
     public Map<String, Object> getAlertStats() {
         Map<String, Object> stats = new HashMap<>();
-        stats.put("firingCount", alertRecordMapper.countFiring());
+        
+        // 总告警数
+        LambdaQueryWrapper<AlertRecord> totalWrapper = new LambdaQueryWrapper<>();
+        long totalCount = alertRecordMapper.selectCount(totalWrapper);
+        stats.put("total", totalCount);
+        
+        // 正在告警数
+        long firingCount = alertRecordMapper.countFiring();
+        stats.put("firing", firingCount);
+        
+        // 已恢复数
+        LambdaQueryWrapper<AlertRecord> resolvedWrapper = new LambdaQueryWrapper<>();
+        resolvedWrapper.eq(AlertRecord::getStatus, "resolved");
+        long resolvedCount = alertRecordMapper.selectCount(resolvedWrapper);
+        stats.put("resolved", resolvedCount);
+        
+        // 严重告警数
+        LambdaQueryWrapper<AlertRecord> criticalWrapper = new LambdaQueryWrapper<>();
+        criticalWrapper.eq(AlertRecord::getStatus, "firing")
+                       .eq(AlertRecord::getSeverity, "critical");
+        long criticalCount = alertRecordMapper.selectCount(criticalWrapper);
+        stats.put("critical", criticalCount);
+        
+        // 补充额外统计信息
+        stats.put("firingCount", firingCount);
         stats.put("resolvedToday", alertRecordMapper.countResolvedToday());
         stats.put("severityDistribution", alertRecordMapper.selectFiringStatsBySeverity());
 
         // 统计各主机的告警数量
-        LambdaQueryWrapper<AlertRecord> firingWrapper = new LambdaQueryWrapper<>();
-        firingWrapper.eq(AlertRecord::getStatus, "firing");
-        firingWrapper.select(AlertRecord::getHost);
-        firingWrapper.groupBy(AlertRecord::getHost);
-        List<AlertRecord> hostAlerts = alertRecordMapper.selectList(firingWrapper);
+        LambdaQueryWrapper<AlertRecord> hostWrapper = new LambdaQueryWrapper<>();
+        hostWrapper.eq(AlertRecord::getStatus, "firing");
+        hostWrapper.select(AlertRecord::getHost);
+        hostWrapper.groupBy(AlertRecord::getHost);
+        List<AlertRecord> hostAlerts = alertRecordMapper.selectList(hostWrapper);
         stats.put("affectedHosts", hostAlerts.size());
 
         return stats;

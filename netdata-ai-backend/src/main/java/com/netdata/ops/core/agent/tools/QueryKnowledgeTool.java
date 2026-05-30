@@ -15,8 +15,6 @@ import java.util.Map;
  * <p>从运维知识库中检索相关信息，支持故障案例、最佳实践、操作手册等知识的检索。
  * 底层调用 {@link RAGService} 实现混合检索（向量 + BM25）。
  *
- * <p>当 RAGService 不可用时，降级为模拟知识库数据返回。
- *
  * @author 刘一舟
  * @since 2026-05-07
  */
@@ -52,21 +50,15 @@ public class QueryKnowledgeTool implements Tool {
 
         log.info("[QueryKnowledgeTool] 知识检索: query={}", query);
 
-        try {
-            // 调用 RAG 服务进行混合检索
-            List<HybridRetriever.RetrievalResult> results = ragService.retrieve(query, 5);
+        // 强制使用真实向量库，不使用模拟数据
+        List<HybridRetriever.RetrievalResult> results = ragService.retrieve(query, 5);
 
-            if (results == null || results.isEmpty()) {
-                return String.format("知识库检索: 未找到与「%s」相关的信息。建议更换关键词重试。", query);
-            }
-
-            // 格式化检索结果
-            return formatRetrievalResults(query, results);
-        } catch (Exception e) {
-            log.error("[QueryKnowledgeTool] 知识检索失败: {}", e.getMessage(), e);
-            // 降级：返回模拟知识库结果
-            return fallbackSearch(query);
+        if (results == null || results.isEmpty()) {
+            return String.format("知识库检索: 未找到与「%s」相关的信息。建议更换关键词重试。", query);
         }
+
+        // 格式化检索结果
+        return formatRetrievalResults(query, results);
     }
 
     /**
@@ -83,42 +75,6 @@ public class QueryKnowledgeTool implements Tool {
             sb.append(String.format("来源: %s\n", result.getSource() != null ? result.getSource() : "未知"));
             sb.append(result.getContent());
             sb.append("\n\n");
-        }
-
-        return sb.toString();
-    }
-
-    /**
-     * 降级检索：当 RAG 服务不可用时，返回模拟知识库数据
-     */
-    private String fallbackSearch(String query) {
-        log.warn("[QueryKnowledgeTool] RAG 服务不可用，使用降级模式");
-
-        StringBuilder sb = new StringBuilder();
-        sb.append(String.format("知识库检索结果 [关键词: %s, 降级模式]\n\n", query));
-
-        String lowerQuery = query.toLowerCase();
-        if (lowerQuery.contains("cpu") || lowerQuery.contains("负载")) {
-            sb.append("--- 结果 1 (故障案例) ---\n");
-            sb.append("标题: CPU 使用率飙升故障排查\n");
-            sb.append("现象: CPU 使用率持续超过 90%\n");
-            sb.append("根因: Java 应用死循环/GC 线程频繁执行\n");
-            sb.append("解决: jstack 定位热点线程，修复无限循环\n\n");
-        } else if (lowerQuery.contains("内存") || lowerQuery.contains("memory") || lowerQuery.contains("oom")) {
-            sb.append("--- 结果 1 (故障案例) ---\n");
-            sb.append("标题: 内存泄漏导致 OOM 故障\n");
-            sb.append("现象: 应用内存持续增长，触发 OOM Killer\n");
-            sb.append("根因: 缓存未设置过期策略\n");
-            sb.append("解决: 引入 LRU 缓存策略，设置过期时间\n\n");
-        } else if (lowerQuery.contains("磁盘") || lowerQuery.contains("disk")) {
-            sb.append("--- 结果 1 (故障案例) ---\n");
-            sb.append("标题: 磁盘空间不足导致服务宕机\n");
-            sb.append("现象: 服务不可用，日志写入失败\n");
-            sb.append("根因: 日志文件未配置轮转\n");
-            sb.append("解决: 配置 logrotate 自动轮转\n\n");
-        } else {
-            sb.append("--- 结果 1 (通用建议) ---\n");
-            sb.append("建议检查相关服务状态、日志和监控指标，进一步缩小问题范围。\n\n");
         }
 
         return sb.toString();

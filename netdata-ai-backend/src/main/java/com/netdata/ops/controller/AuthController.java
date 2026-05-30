@@ -1,5 +1,6 @@
 package com.netdata.ops.controller;
 
+import com.netdata.ops.annotation.OperationLogAnno;
 import com.netdata.ops.dto.request.LoginRequest;
 import com.netdata.ops.dto.response.R;
 import com.netdata.ops.dto.response.TokenResponse;
@@ -29,6 +30,7 @@ public class AuthController {
 
     @Operation(summary = "用户登录")
     @PostMapping("/login")
+    @OperationLogAnno(module = "认证管理", action = "LOGIN", description = "用户登录")
     public R<TokenResponse> login(@Valid @RequestBody LoginRequest request,
                                   HttpServletRequest httpRequest) {
         TokenResponse response = authService.login(request, httpRequest);
@@ -37,6 +39,7 @@ public class AuthController {
 
     @Operation(summary = "用户登出")
     @PostMapping("/logout")
+    @OperationLogAnno(module = "认证管理", action = "LOGOUT", description = "用户登出")
     public R<Void> logout(HttpServletRequest request) {
         String token = extractToken(request);
         if (token != null) {

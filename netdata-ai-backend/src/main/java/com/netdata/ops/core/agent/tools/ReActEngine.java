@@ -97,7 +97,7 @@ public class ReActEngine {
             log.debug("[ReActEngine] LLM 输出:\n{}", llmOutput);
 
             // 解析 LLM 输出
-            ParsedAction parsed = parseLLMOutput(llmOutput);
+            ParsedAction parsed = parseLLMOutput(llmOutput, i + 1);
 
             // 如果是最终答案，结束循环
             if (parsed.isFinalAnswer) {
@@ -170,6 +170,24 @@ public class ReActEngine {
 
         // System 指令
         sb.append("你是一个智能运维助手，使用 ReAct 方法解决问题。\n\n");
+        sb.append("⚠️ 严格禁止编造 Observation！每轮必须只输出一个 Action，然后等待真实的工具执行结果！\n\n");
+        sb.append("重要约束：\n");
+        sb.append("- 不要在没有等待真实 Observation 的情况下编造后续步骤\n");
+        sb.append("- 每轮推理只能输出一个 Action（或 Final Answer）\n");
+        sb.append("- Observation 只能由系统提供，你绝对不能自己生成\n\n");
+
+        sb.append("正确格式示例：\n");
+        sb.append("Thought: 我需要先查看系统状态\n");
+        sb.append("Action: get_system_status\n");
+        sb.append("Action Input: {\"host\": \"localhost\"}\n\n");
+
+        sb.append("错误格式示例（不要这样做）：\n");
+        sb.append("❌ 错误：自己编造 Observation\n");
+        sb.append("Thought: 我需要先查看系统状态\n");
+        sb.append("Action: get_system_status\n");
+        sb.append("Action Input: {\"host\": \"localhost\"}\n");
+        sb.append("Observation: 系统运行正常（这是编造的！）\n");
+        sb.append("Thought: 接下来我需要...（继续编造后续步骤）\n\n");
 
         // 额外系统上下文
         if (systemContext != null && !systemContext.isBlank()) {
@@ -211,59 +229,118 @@ public class ReActEngine {
     /**
      * 解析 LLM 输出
      */
-    private ParsedAction parseLLMOutput(String output) {
+    private ParsedAction parseLLMOutput(String output, int iteration) {
         ParsedAction parsed = new ParsedAction();
 
+        log.info("[ReActEngine] 开始解析 LLM 输出，第 {} 轮迭代", iteration);
+        log.debug("[ReActEngine] 原始 LLM 输出:\n{}", output);
+
+        // 统计 Action 出现的次数
+        int actionCount = 0;
+        int lastIndex = 0;
+        while (true) {
+            int idx = output.indexOf("Action:", lastIndex);
+            if (idx == -1) break;
+            actionCount++;
+            lastIndex = idx + 1;
+        }
+
+        log.info("[ReActEngine] 检测到 {} 个 Action", actionCount);
+
+        String processedOutput = output;
+
+        // 如果有多个 Action，只保留到第一个 Action Input
+        if (actionCount > 1) {
+            log.warn("[ReActEngine] 检测到多个 Action，将截断到第一个 Action Input");
+            
+            // 找到第一个 Action 的位置
+            int firstActionIdx = output.indexOf("Action:");
+            // 找到第二个 Action 的位置
+            int secondActionIdx = output.indexOf("Action:", firstActionIdx + 1);
+            
+            // 找到第一个 Action Input 的结束位置
+            int actionInputEndIdx = secondActionIdx;
+            
+            // 或者找到 Observation 的位置（如果存在）
+            int observationIdx = output.indexOf("Observation:", firstActionIdx);
+            if (observationIdx != -1 && observationIdx < secondActionIdx) {
+                actionInputEndIdx = observationIdx;
+            }
+            
+            processedOutput = output.substring(0, actionInputEndIdx).trim();
+            log.debug("[ReActEngine] 截断后的输出:\n{}", processedOutput);
+        }
+
+        // 检查 Final Answer 是否在第一个 Action 之前
+        int finalAnswerIdx = processedOutput.indexOf("Final Answer:");
+        int firstActionIdx = processedOutput.indexOf("Action:");
+        
+        if (finalAnswerIdx != -1 && firstActionIdx != -1 && finalAnswerIdx < firstActionIdx) {
+            log.warn("[ReActEngine] 检测到 Final Answer 在第一个 Action 之前");
+            
+            // 如果是第一轮迭代，谨慎处理 - 优先执行工具而不是直接返回 Final Answer
+            if (iteration == 1) {
+                log.info("[ReActEngine] 第一轮迭代，优先执行工具，忽略 Final Answer");
+                // 截断 Final Answer 之前的内容
+                processedOutput = processedOutput.substring(finalAnswerIdx + "Final Answer:".length()).trim();
+            }
+        }
+
         // 检查是否包含 Final Answer
-        Matcher finalMatcher = FINAL_ANSWER_PATTERN.matcher(output);
+        Matcher finalMatcher = FINAL_ANSWER_PATTERN.matcher(processedOutput);
         if (finalMatcher.find()) {
             parsed.isFinalAnswer = true;
             parsed.finalAnswer = finalMatcher.group(1).trim();
 
             // 尝试提取 thought
-            Matcher thoughtMatcher = THOUGHT_PATTERN.matcher(output);
+            Matcher thoughtMatcher = THOUGHT_PATTERN.matcher(processedOutput);
             if (thoughtMatcher.find()) {
                 parsed.thought = thoughtMatcher.group(1).trim();
             }
+            log.info("[ReActEngine] 解析到 Final Answer");
             return parsed;
         }
 
         // 提取 Thought
-        Matcher thoughtMatcher = THOUGHT_PATTERN.matcher(output);
+        Matcher thoughtMatcher = THOUGHT_PATTERN.matcher(processedOutput);
         if (thoughtMatcher.find()) {
             parsed.thought = thoughtMatcher.group(1).trim();
         } else {
             // 尝试更宽松的匹配
-            int thoughtIdx = output.indexOf("Thought:");
+            int thoughtIdx = processedOutput.indexOf("Thought:");
             if (thoughtIdx >= 0) {
-                int endIdx = output.indexOf("\n", thoughtIdx);
+                int endIdx = processedOutput.indexOf("\n", thoughtIdx);
                 if (endIdx > thoughtIdx) {
-                    parsed.thought = output.substring(thoughtIdx + 8, endIdx).trim();
+                    parsed.thought = processedOutput.substring(thoughtIdx + 8, endIdx).trim();
                 }
             }
             if (parsed.thought == null) {
-                parsed.thought = output.trim();
+                parsed.thought = processedOutput.trim();
             }
         }
 
         // 提取 Action
-        Matcher actionMatcher = ACTION_PATTERN.matcher(output);
+        Matcher actionMatcher = ACTION_PATTERN.matcher(processedOutput);
         if (actionMatcher.find()) {
             parsed.action = actionMatcher.group(1).trim();
+            log.info("[ReActEngine] 解析到 Action: {}", parsed.action);
         }
 
         // 提取 Action Input
-        Matcher inputMatcher = ACTION_INPUT_PATTERN.matcher(output);
+        Matcher inputMatcher = ACTION_INPUT_PATTERN.matcher(processedOutput);
         if (inputMatcher.find()) {
             parsed.actionInput = inputMatcher.group(1).trim();
+            log.debug("[ReActEngine] 解析到 Action Input: {}", parsed.actionInput);
         }
 
         // 如果无法解析出 Action，视为最终答案
         if (parsed.action == null || parsed.action.isBlank()) {
             parsed.isFinalAnswer = true;
-            parsed.finalAnswer = output.trim();
+            parsed.finalAnswer = processedOutput.trim();
+            log.info("[ReActEngine] 未解析到 Action，视为 Final Answer");
         }
 
+        log.info("[ReActEngine] LLM 输出解析完成，isFinalAnswer={}", parsed.isFinalAnswer);
         return parsed;
     }
 
@@ -347,8 +424,8 @@ public class ReActEngine {
 
         String cleaned = toolName.trim();
 
-        // 去除 Markdown 格式符号：**, `, #, >, -, *, _
-        cleaned = cleaned.replaceAll("[*_#>`\\-]+", "");
+        // 去除 Markdown 格式符号：*, `, #, >, -, 但保留下划线 _（因为工具名称中包含下划线）
+        cleaned = cleaned.replaceAll("[\\*#>`\\-]+", "");
 
         // 去除前后的空白字符
         cleaned = cleaned.trim();

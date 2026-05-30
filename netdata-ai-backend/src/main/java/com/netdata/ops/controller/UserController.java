@@ -1,6 +1,7 @@
 package com.netdata.ops.controller;
 
 import com.netdata.ops.annotation.AdminOnly;
+import com.netdata.ops.annotation.OperationLogAnno;
 import com.netdata.ops.annotation.RequirePermission;
 import com.netdata.ops.dto.request.UserCreateRequest;
 import com.netdata.ops.dto.request.UserUpdateRequest;
@@ -47,6 +48,7 @@ public class UserController {
     @Operation(summary = "创建用户")
     @PostMapping
     @RequirePermission("user:write")
+    @OperationLogAnno(module = "用户管理", action = "CREATE", description = "创建用户")
     public R<UserVO> createUser(@Valid @RequestBody UserCreateRequest request) {
         return R.ok("用户创建成功", userService.createUser(request));
     }
@@ -54,6 +56,7 @@ public class UserController {
     @Operation(summary = "更新用户信息")
     @PutMapping("/{id}")
     @RequirePermission("user:write")
+    @OperationLogAnno(module = "用户管理", action = "UPDATE", description = "更新用户信息")
     public R<UserVO> updateUser(@PathVariable Long id, @Valid @RequestBody UserUpdateRequest request) {
         return R.ok("用户更新成功", userService.updateUser(id, request));
     }
@@ -61,6 +64,7 @@ public class UserController {
     @Operation(summary = "删除用户")
     @DeleteMapping("/{id}")
     @RequirePermission("user:delete")
+    @OperationLogAnno(module = "用户管理", action = "DELETE", description = "删除用户")
     public R<Void> deleteUser(@PathVariable Long id) {
         userService.deleteUser(id);
         return R.ok();
@@ -69,6 +73,7 @@ public class UserController {
     @Operation(summary = "为用户分配角色")
     @PostMapping("/{id}/roles")
     @RequirePermission("user:role_assign")
+    @OperationLogAnno(module = "用户管理", action = "UPDATE", description = "为用户分配角色")
     public R<Void> assignRoles(@PathVariable Long id, @RequestBody Map<String, List<Long>> body) {
         List<Long> roleIds = body.get("roleIds");
         userService.assignRoles(id, roleIds);
@@ -78,6 +83,7 @@ public class UserController {
     @Operation(summary = "重置用户密码")
     @PutMapping("/{id}/password")
     @RequirePermission("user:write")
+    @OperationLogAnno(module = "用户管理", action = "UPDATE", description = "重置用户密码")
     public R<Void> resetPassword(@PathVariable Long id, @RequestBody Map<String, String> body) {
         userService.resetPassword(id, body.get("newPassword"));
         return R.ok();

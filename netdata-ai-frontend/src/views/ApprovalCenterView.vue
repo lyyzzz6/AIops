@@ -228,8 +228,19 @@ async function refreshAll() {
 async function loadStats() {
   try {
     const [p, e] = await Promise.all([approvalApi.getStats(), executionApi.getStats()])
-    permStats.value = p || {}
-    execStats.value = e || {}
+    permStats.value = {
+      pending: p?.pendingCount ?? 0,
+      approved: p?.approvedCount ?? 0,
+      rejected: p?.rejectedCount ?? 0,
+      total: p?.totalCount ?? 0,
+    }
+    execStats.value = {
+      pending: e?.pendingCount ?? 0,
+      completed: e?.executedCount ?? 0,
+      rejected: e?.rejectedCount ?? 0,
+      failed: e?.failedCount ?? 0,
+      total: e?.totalCount ?? 0,
+    }
   } catch { /* ignore */ }
 }
 

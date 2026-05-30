@@ -1,6 +1,8 @@
 package com.netdata.ops.core.agent.tools;
 
+import com.netdata.ops.core.agent.client.NetDataClient;
 import lombok.extern.slf4j.Slf4j;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.io.BufferedReader;
@@ -8,14 +10,13 @@ import java.io.InputStreamReader;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
-import java.util.Random;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * 服务状态检查工具
  *
- * <p>通过执行系统命令检查目标主机上服务的运行状态和资源占用。
+ * <p>首先尝试通过 NetData 获取真实监控数据，失败时降级为系统命令检查。
  * 包括进程状态、监听端口、CPU/内存占用等信息。支持 Windows 和 Linux 系统。
  *
  * @author 刘一舟
@@ -23,6 +24,7 @@ import java.util.regex.Pattern;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 @AgentTool(
         name = "check_service",
         description = "检查目标主机上服务的运行状态和资源占用",
@@ -33,7 +35,7 @@ import java.util.regex.Pattern;
 )
 public class CheckServiceTool implements Tool {
 
-    private static final Random RANDOM = new Random();
+    private final NetDataClient netDataClient;
 
     @Override
     public String getName() {
@@ -52,7 +54,17 @@ public class CheckServiceTool implements Tool {
 
         log.info("[CheckServiceTool] 检查服务状态: service={}, host={}", serviceName, host);
 
-        // 首先尝试通过系统命令获取真实数据
+        // 首先尝试通过 NetData 获取真实监控数据
+        try {
+            String netDataResult = checkWithNetData(serviceName, host);
+            if (netDataResult != null) {
+                return netDataResult;
+            }
+        } catch (Exception e) {
+            log.warn("[CheckServiceTool] NetData 检查失败: {}", e.getMessage());
+        }
+
+        // NetData 失败，降级为系统命令检查
         try {
             ServiceStatus status = checkServiceReal(serviceName, host);
             if (status != null && status.isValid()) {
@@ -62,9 +74,65 @@ public class CheckServiceTool implements Tool {
             log.warn("[CheckServiceTool] 系统命令检查失败: {}", e.getMessage());
         }
 
-        // 如果真实检查失败，使用模拟数据作为兜底
-        log.warn("[CheckServiceTool] 真实数据不可用，使用模拟数据作为兜底");
-        return generateServiceStatus(serviceName, host);
+        // 都失败，返回明确错误
+        return String.format(
+                "服务状态检查失败: 无法通过 NetData 或系统命令获取 '%s' 的状态信息。" +
+                        "\n请确认：\n1. 服务名称正确\n2. 目标主机可访问\n3. 有足够的权限执行命令",
+                serviceName);
+    }
+
+    /**
+     * 通过 NetData 检查服务状态
+     */
+    private String checkWithNetData(String serviceName, String host) {
+        log.info("[CheckServiceTool] 尝试通过 NetData 检查: {}", serviceName);
+
+        // 尝试获取与服务相关的指标
+        Map<String, Object> cpuMetrics = netDataClient.getMetrics("cpu", "1h");
+        Map<String, Object> memoryMetrics = netDataClient.getMetrics("memory", "1h");
+
+        // 获取系统信息
+        Map<String, Object> systemInfo = netDataClient.getSystemInfo();
+        Map<String, Object> charts = netDataClient.listCharts();
+
+        // 格式化 NetData 检查结果
+        String now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        StringBuilder sb = new StringBuilder();
+        sb.append("服务状态检查结果:\n");
+        sb.append(String.format("  服务名: %s\n", serviceName));
+        sb.append(String.format("  主机: %s\n", host));
+        sb.append(String.format("  检查时间: %s\n", now));
+        sb.append("  数据来源: NetData 监控系统\n");
+        sb.append("  ─────────────────────\n");
+
+        // 添加系统指标信息
+        if (cpuMetrics != null) {
+            Double currentCpu = (Double) cpuMetrics.get("currentValue");
+            sb.append(String.format("  系统 CPU: %.1f%%\n", currentCpu != null ? currentCpu : 0.0));
+        }
+        if (memoryMetrics != null) {
+            Double currentMem = (Double) memoryMetrics.get("currentValue");
+            sb.append(String.format("  系统内存: %.1f%%\n", currentMem != null ? currentMem : 0.0));
+        }
+
+        // 尝试通过图表名称匹配服务
+        boolean serviceFound = false;
+        if (charts != null && charts.containsKey("charts")) {
+            Map<?, ?> chartsMap = (Map<?, ?>) charts.get("charts");
+            for (Object chartKey : chartsMap.keySet()) {
+                String chartName = String.valueOf(chartKey);
+                if (chartName.toLowerCase().contains(serviceName.toLowerCase())) {
+                    serviceFound = true;
+                    sb.append(String.format("  匹配图表: %s\n", chartName));
+                    break;
+                }
+            }
+        }
+
+        sb.append("  ─────────────────────\n");
+        sb.append(String.format("  服务健康状态: %s\n", serviceFound ? "正常" : "未找到直接指标"));
+
+        return sb.toString();
     }
 
     /**
@@ -328,124 +396,4 @@ public class CheckServiceTool implements Tool {
         }
     }
 
-    /**
-     * 格式化 MCP 返回结果
-     */
-    private String formatMcpResponse(Map<String, Object> response, String serviceName, String host) {
-        String now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-
-        // 提取字段
-        String status = (String) response.getOrDefault("status", "unknown");
-        String processInfo = (String) response.getOrDefault("processInfo", "N/A");
-        int pid = response.get("pid") instanceof Number ? ((Number) response.get("pid")).intValue() : 0;
-        int port = response.get("port") instanceof Number ? ((Number) response.get("port")).intValue() : 0;
-        double cpuPercent = response.get("cpuPercent") instanceof Number ? ((Number) response.get("cpuPercent")).doubleValue() : 0.0;
-        double memoryPercent = response.get("memoryPercent") instanceof Number ? ((Number) response.get("memoryPercent")).doubleValue() : 0.0;
-        String upSince = (String) response.get("upSince");
-        boolean portReachable = response.get("portReachable") instanceof Boolean ? ((Boolean) response.get("portReachable")) : false;
-        boolean healthy = response.get("healthy") instanceof Boolean ? ((Boolean) response.get("healthy")) : false;
-
-        return String.format(
-                "服务状态检查结果:\n"
-                        + "  服务名: %s\n"
-                        + "  主机: %s\n"
-                        + "  检查时间: %s\n"
-                        + "  数据来源: MCP 真实数据\n"
-                        + "  ─────────────────────\n"
-                        + "  进程状态: %s\n"
-                        + "  进程信息: %s\n"
-                        + "  PID: %d\n"
-                        + "  监听端口: %d\n"
-                        + "  CPU 占用: %.1f%%\n"
-                        + "  内存占用: %.1f%%\n"
-                        + "  运行时间: %s\n"
-                        + "  ─────────────────────\n"
-                        + "  端口连通性: %s\n"
-                        + "  健康检查: %s",
-                serviceName,
-                host,
-                now,
-                status,
-                processInfo,
-                pid,
-                port,
-                cpuPercent,
-                memoryPercent,
-                upSince != null ? "自 " + upSince + " 起" : "N/A",
-                portReachable ? "端口 " + port + " 可达" : "端口 " + port + " 不可达",
-                healthy ? "HEALTHY" : "UNHEALTHY"
-        );
-    }
-
-    /**
-     * 生成模拟服务状态信息（作为真实数据不可用时的兜底）
-     */
-    private String generateServiceStatus(String serviceName, String host) {
-        String now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-
-        return switch (serviceName.toLowerCase()) {
-            case "nginx" -> formatStatus(serviceName, host, now,
-                    "running", "master + 4 workers",
-                    80, 1.2, 0.5, 15342, "2026-05-06 08:00:00");
-
-            case "mysql", "mysqld" -> formatStatus(serviceName, host, now,
-                    "running", "mysqld (pid: 2341)",
-                    3306, 8.5, 12.3, 2341, "2026-05-05 22:00:00");
-
-            case "redis", "redis-server" -> formatStatus(serviceName, host, now,
-                    "running", "redis-server *:6379",
-                    6379, 0.3, 2.1, 3456, "2026-05-06 08:00:00");
-
-            case "java", "spring", "springboot" -> formatStatus(serviceName, host, now,
-                    "running", "java -jar app.jar",
-                    8080, 45.2 + RANDOM.nextDouble() * 30, 35.0 + RANDOM.nextDouble() * 20,
-                    5678, "2026-05-06 10:30:00");
-
-            case "docker", "dockerd" -> formatStatus(serviceName, host, now,
-                    "running", "dockerd --host=fd://",
-                    2375, 3.2, 4.5, 1234, "2026-05-05 20:00:00");
-
-            default -> formatStatus(serviceName, host, now,
-                    RANDOM.nextBoolean() ? "running" : "stopped",
-                    serviceName + " process",
-                    8000 + RANDOM.nextInt(1000),
-                    RANDOM.nextDouble() * 20,
-                    RANDOM.nextDouble() * 10,
-                    10000 + RANDOM.nextInt(50000),
-                    "2026-05-06 00:00:00");
-        };
-    }
-
-    /**
-     * 格式化服务状态输出
-     */
-    private String formatStatus(String serviceName, String host, String checkTime,
-                                String status, String processInfo,
-                                int port, double cpuPercent, double memPercent,
-                                int pid, String upSince) {
-        boolean isRunning = "running".equals(status);
-        return String.format(
-                "服务状态检查结果:\n"
-                        + "  服务名: %s\n"
-                        + "  主机: %s\n"
-                        + "  检查时间: %s\n"
-                        + "  数据来源: 模拟数据（兜底）\n"
-                        + "  ─────────────────────\n"
-                        + "  进程状态: %s\n"
-                        + "  进程信息: %s\n"
-                        + "  PID: %d\n"
-                        + "  监听端口: %d\n"
-                        + "  CPU 占用: %.1f%%\n"
-                        + "  内存占用: %.1f%%\n"
-                        + "  运行时间: 自 %s 起\n"
-                        + "  ─────────────────────\n"
-                        + "  端口连通性: %s\n"
-                        + "  健康检查: %s",
-                serviceName, host, checkTime,
-                status, processInfo, pid, port,
-                cpuPercent, memPercent, upSince,
-                isRunning ? "端口 " + port + " 可达" : "端口 " + port + " 不可达",
-                isRunning ? "HEALTHY" : "UNHEALTHY"
-        );
-    }
 }

@@ -29,7 +29,7 @@
             v-model="form.command"
             type="textarea"
             :rows="3"
-            placeholder="示例: systemctl restart nginx"
+            placeholder="示例: top -n 1 | head -20"
           />
         </el-form-item>
         <el-form-item label="命令类型">
@@ -41,14 +41,14 @@
             <el-option label="Kubernetes" value="kubernetes" />
           </el-select>
         </el-form-item>
-        <el-form-item label="目标主机">
+        <el-form-item label="目标主机" required>
           <el-input v-model="form.targetHost" placeholder="如 node-01" style="width: 300px" />
         </el-form-item>
 
         <!-- 风险评估结果 -->
         <el-alert
           v-if="riskResult"
-          :title="`风险等级：${riskResult.riskLevel}  |  风险分数：${riskResult.riskScore}  |  ${riskResult.status === 'pending' ? '需要审批' : '可直接执行'}`"
+          :title="`风险等级：${riskResult.riskLevel}  |  风险分数：${riskResult.riskScore}  |  ${getStatusText(riskResult)}`"
           :type="riskAlertType(riskResult.riskLevel)"
           show-icon
           style="margin-bottom: 16px"
@@ -161,7 +161,7 @@ const formRef = ref<FormInstance>()
 const form = reactive({
   command: '',
   commandType: '',
-  targetHost: '',
+  targetHost: 'localhost',
 })
 const rules: FormRules = {
   command: [{ required: true, message: '请输入要执行的命令', trigger: 'blur' }],
@@ -223,7 +223,7 @@ async function handleSubmit() {
 function handleReset() {
   form.command = ''
   form.commandType = ''
-  form.targetHost = ''
+  form.targetHost = 'localhost'
   riskResult.value = null
   formRef.value?.clearValidate()
 }
@@ -284,6 +284,19 @@ function statusLabel(s: string) {
     completed: '已完成',
     failed: '失败',
   } as any)[s] || s
+}
+
+function getStatusText(riskResult: any): string {
+  if (riskResult.riskLevel === 'CRITICAL') {
+    return '已拦截，禁止执行'
+  }
+  if (riskResult.status === 'pending') {
+    return '需要审批'
+  }
+  if (riskResult.status === 'approved' || riskResult.riskLevel === 'LOW') {
+    return '可直接执行'
+  }
+  return statusLabel(riskResult.status)
 }
 
 function statusTag(s: string): 'success' | 'warning' | 'danger' | 'info' | 'primary' {

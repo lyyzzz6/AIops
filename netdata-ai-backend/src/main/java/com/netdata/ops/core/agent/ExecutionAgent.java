@@ -796,6 +796,14 @@ public class ExecutionAgent extends BaseAgent implements AgentMessageHandler {
                     .errorMessage(String.format("命令执行超时（超过 %d 秒）", commandTimeoutSeconds))
                     .response(output.stdout)
                     .executionTimeMs(duration)
+                    .suggestedCommands(List.of(
+                        AgentResult.CommandSuggestion.builder()
+                            .command(command)
+                            .description("重新执行（超时）")
+                            .riskLevel("INFO")
+                            .requiresApproval(false)
+                            .build()
+                    ))
                     .build();
             }
             
@@ -811,6 +819,15 @@ public class ExecutionAgent extends BaseAgent implements AgentMessageHandler {
             
             if (exitCode != 0) {
                 result.setErrorMessage(String.format("命令执行失败，退出码: %d", exitCode));
+                // 添加命令建议，让用户可以再次尝试
+                result.setSuggestedCommands(List.of(
+                    AgentResult.CommandSuggestion.builder()
+                        .command(command)
+                        .description("重新执行命令")
+                        .riskLevel("INFO")
+                        .requiresApproval(false)
+                        .build()
+                ));
             }
             
             log.info("[ExecutionAgent] [步骤6/6] 执行结果构建完成");
@@ -831,6 +848,14 @@ public class ExecutionAgent extends BaseAgent implements AgentMessageHandler {
                 .response(errorResponse)
                 .errorMessage("命令执行失败: " + e.getMessage())
                 .executionTimeMs(System.currentTimeMillis() - startTime)
+                .suggestedCommands(List.of(
+                    AgentResult.CommandSuggestion.builder()
+                        .command(command)
+                        .description("重新执行（IO异常）")
+                        .riskLevel("INFO")
+                        .requiresApproval(false)
+                        .build()
+                ))
                 .build();
         } catch (InterruptedException e) {
             log.error("[ExecutionAgent] 命令执行被中断: {}", e.getMessage(), e);
@@ -841,6 +866,14 @@ public class ExecutionAgent extends BaseAgent implements AgentMessageHandler {
                 .response(errorResponse)
                 .errorMessage("命令执行被中断")
                 .executionTimeMs(System.currentTimeMillis() - startTime)
+                .suggestedCommands(List.of(
+                    AgentResult.CommandSuggestion.builder()
+                        .command(command)
+                        .description("重新执行（中断）")
+                        .riskLevel("INFO")
+                        .requiresApproval(false)
+                        .build()
+                ))
                 .build();
         } catch (Exception e) {
             log.error("[ExecutionAgent] 命令执行异常: {}", e.getMessage(), e);
@@ -850,6 +883,14 @@ public class ExecutionAgent extends BaseAgent implements AgentMessageHandler {
                 .response(errorResponse)
                 .errorMessage("命令执行异常: " + e.getMessage())
                 .executionTimeMs(System.currentTimeMillis() - startTime)
+                .suggestedCommands(List.of(
+                    AgentResult.CommandSuggestion.builder()
+                        .command(command)
+                        .description("重新执行（异常）")
+                        .riskLevel("INFO")
+                        .requiresApproval(false)
+                        .build()
+                ))
                 .build();
         }
     }

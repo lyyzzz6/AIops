@@ -255,12 +255,16 @@ export const knowledgeApi = {
  * 告警 API
  */
 export const alertApi = {
-  async getAlerts(params?: { status?: string; severity?: string }) {
+  async getAlerts(params?: { current?: number; size?: number; status?: string; severity?: string; host?: string; keyword?: string }) {
     const res = await apiClient.get('/alerts', { params })
     return unwrap(res)
   },
   async getStats() {
     const res = await apiClient.get('/alerts/stats')
+    return unwrap(res)
+  },
+  async getTrend() {
+    const res = await apiClient.get('/alerts/trend')
     return unwrap(res)
   },
 }

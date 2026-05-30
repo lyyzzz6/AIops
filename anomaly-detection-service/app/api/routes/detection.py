@@ -176,7 +176,6 @@ async def stream_detect(
 
     使用在线检测器：
     - half_space_trees: 半空间树
-    - xstream: xStream
     """
     start_time = time.time()
 

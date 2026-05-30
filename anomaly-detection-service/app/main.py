@@ -83,7 +83,7 @@ app = FastAPI(
 
 ### 功能特性
 - **批量检测**: 使用离线算法（Isolation Forest, LOF, KNN）
-- **流式检测**: 使用在线算法（Half-Space Trees, xStream）
+- **流式检测**: 使用在线算法（Half-Space Trees）
 - **NetData 集成**: 直接从 NetData API 获取指标数据
 
 ### 检测器类型
@@ -93,7 +93,6 @@ app = FastAPI(
 | `lof` | 局部异常因子 | 密度不均数据 |
 | `knn` | K-近邻 | 低维数据 |
 | `half_space_trees` | 半空间树 | 实时流式检测 |
-| `xstream` | xStream | 高维流式数据 |
     """,
     openapi_url="/api/openapi.json",
     docs_url="/api/docs",

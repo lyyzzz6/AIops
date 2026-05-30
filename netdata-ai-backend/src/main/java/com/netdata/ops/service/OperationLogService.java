@@ -60,19 +60,23 @@ public class OperationLogService {
     public Map<String, Object> getLogStats() {
         Map<String, Object> stats = new HashMap<>();
 
+        // 总操作数
+        stats.put("total", operationLogMapper.selectCount(null));
+
+        // 成功数
+        LambdaQueryWrapper<OperationLog> successWrapper = new LambdaQueryWrapper<>();
+        successWrapper.eq(OperationLog::getStatus, 1);
+        stats.put("success", operationLogMapper.selectCount(successWrapper));
+
+        // 失败数
+        LambdaQueryWrapper<OperationLog> failWrapper = new LambdaQueryWrapper<>();
+        failWrapper.eq(OperationLog::getStatus, 0);
+        stats.put("failed", operationLogMapper.selectCount(failWrapper));
+
         // 今日操作数
         LambdaQueryWrapper<OperationLog> todayWrapper = new LambdaQueryWrapper<>();
         todayWrapper.ge(OperationLog::getCreatedAt, LocalDateTime.now().toLocalDate().atStartOfDay());
-        stats.put("todayCount", operationLogMapper.selectCount(todayWrapper));
-
-        // 今日失败数
-        LambdaQueryWrapper<OperationLog> failWrapper = new LambdaQueryWrapper<>();
-        failWrapper.ge(OperationLog::getCreatedAt, LocalDateTime.now().toLocalDate().atStartOfDay());
-        failWrapper.eq(OperationLog::getStatus, 0);
-        stats.put("todayFailCount", operationLogMapper.selectCount(failWrapper));
-
-        // 总计
-        stats.put("totalCount", operationLogMapper.selectCount(null));
+        stats.put("today", operationLogMapper.selectCount(todayWrapper));
 
         return stats;
     }

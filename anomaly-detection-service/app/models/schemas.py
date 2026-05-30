@@ -38,7 +38,6 @@ class DetectorType(str, Enum):
 
     # 在线检测器（流式处理）
     HALF_SPACE_TREES = "half_space_trees"  # 半空间树
-    XSTREAM = "xstream"  # xStream
 
 
 class AnomalyLevel(str, Enum):

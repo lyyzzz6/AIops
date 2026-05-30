@@ -161,7 +161,7 @@ public class LLMFallbackHandler {
             Map<String, Object> requestBody = new HashMap<>();
             requestBody.put("model", deepseekModel);
             requestBody.put("messages", Collections.singletonList(message));
-            requestBody.put("max_tokens", 1000);
+            requestBody.put("max_tokens", 10000);
             requestBody.put("temperature", 0.7);
             
             // 设置请求头
@@ -304,7 +304,7 @@ public class LLMFallbackHandler {
         final Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("model", model);
         requestBody.put("messages", Collections.singletonList(message));
-        requestBody.put("max_tokens", 1000);
+        requestBody.put("max_tokens", 10000);
         requestBody.put("temperature", 0.7);
         requestBody.put("stream", true);
 
@@ -402,7 +402,7 @@ public class LLMFallbackHandler {
             Map<String, Object> requestBody = new HashMap<>();
             requestBody.put("model", ollamaModel);
             requestBody.put("messages", Collections.singletonList(message));
-            requestBody.put("max_tokens", 1000);
+            requestBody.put("max_tokens", 10000);
             requestBody.put("temperature", 0.7);
             
             // 设置请求头

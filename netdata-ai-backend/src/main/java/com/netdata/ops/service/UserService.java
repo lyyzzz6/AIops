@@ -101,6 +101,7 @@ public class UserService {
         user.setStatus(1);
         user.setLoginFailCount(0);
         user.setDeleted(0);
+        user.setIsFirstLogin(0);
         user.setCreatedAt(LocalDateTime.now());
         user.setUpdatedAt(LocalDateTime.now());
         userMapper.insert(user);
@@ -146,14 +147,18 @@ public class UserService {
             throw new BusinessException(ErrorCode.USER_NOT_FOUND);
         }
 
+        // 检查是否已被删除
+        if (user.getDeleted() == 1) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND, "用户已被删除");
+        }
+
         // 不能删除自己
         if (id.equals(SecurityUtils.getCurrentUserId())) {
             throw new BusinessException(ErrorCode.PARAM_INVALID, "不能删除当前登录用户");
         }
 
-        user.setDeleted(1);
-        user.setUpdatedAt(LocalDateTime.now());
-        userMapper.updateById(user);
+        // 使用自定义方法绕过逻辑删除插件的限制
+        userMapper.deleteByIdPhysical(id);
 
         // 清除权限缓存
         clearPermissionCache(id);

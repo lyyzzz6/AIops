@@ -16,7 +16,6 @@ from app.core.pyod_detector import (
 from app.core.pysad_detector import (
     HalfSpaceTreesDetector,
     PYSAD_AVAILABLE,
-    xStreamDetector,
 )
 
 __all__ = [
@@ -31,6 +30,5 @@ __all__ = [
     "KNNDetector",
     # PySAD 检测器
     "HalfSpaceTreesDetector",
-    "xStreamDetector",
     "PYSAD_AVAILABLE",
 ]

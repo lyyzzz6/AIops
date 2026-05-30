@@ -5,6 +5,7 @@ import com.netdata.ops.entity.SysUser;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
@@ -16,6 +17,9 @@ public interface SysUserMapper extends BaseMapper<SysUser> {
 
     @Select("SELECT * FROM sys_user WHERE email = #{email} AND deleted = 0")
     SysUser selectByEmail(@Param("email") String email);
+
+    @Update("UPDATE sys_user SET deleted = 1, updated_at = NOW() WHERE id = #{id}")
+    void deleteByIdPhysical(@Param("id") Long id);
 
     @Select("SELECT DISTINCT p.permission_code FROM sys_permission p " +
             "INNER JOIN role_permission rp ON p.id = rp.permission_id " +

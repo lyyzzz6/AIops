@@ -85,7 +85,7 @@ public class ExecutionAuditService {
         audit.setCreatedAt(LocalDateTime.now());
         audit.setUpdatedAt(LocalDateTime.now());
 
-        // 低风险自动执行，中高风险需审批
+        // 低风险自动执行，中高风险需审批，严重风险直接拒绝
         if ("LOW".equals(riskLevel)) {
             audit.setStatus("approved");
             audit.setApproverId(userId); // 自审批
@@ -105,6 +105,7 @@ public class ExecutionAuditService {
             }
         } else if ("CRITICAL".equals(riskLevel)) {
             audit.setStatus("rejected");
+            audit.setExecutionResult("危险命令被自动拦截");
             log.warn("危险命令被自动拦截: command={}, user={}", command, SecurityUtils.getCurrentUsername());
         } else {
             audit.setStatus("pending");
